@@ -1,10 +1,10 @@
 <p align="center">
   <h1 align="center">
     <a href="https://github.com/gyroflow/gyroflow-plugins#gh-light-mode-only">
-      <img src="./resources/logo_black.svg" alt="Gyroflow logo" height="100">
+      <img src="https://raw.githubusercontent.com/gyroflow/gyroflow/master/resources/logo_black.svg" alt="Gyroflow logo" height="100">
     </a>
     <a href="https://github.com/gyroflow/gyroflow-plugins#gh-dark-mode-only">
-      <img src="./resources/logo_white.svg" alt="Gyroflow logo" height="100">
+      <img src="https://raw.githubusercontent.com/gyroflow/gyroflow/master/resources/logo_white.svg" alt="Gyroflow logo" height="100">
     </a>
   </h1>
 
@@ -39,26 +39,11 @@
 This repository contains the source code of [Gyroflow](https://github.com/gyroflow/gyroflow) video editor plugins.
 
 ## Supported applications:
-| Application  | Plugin type |
-| ------------- | ------------- |
-| [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve) | OpenFX |
-| [Assimilate SCRATCH](https://www.assimilateinc.com/products/)               | OpenFX |
-| [The Foundry Nuke](https://www.foundry.com/products/nuke-family/nuke)       | OpenFX |
-| [MAGIX Vegas](https://www.vegascreativesoftware.com/us/vegas-pro/)          | OpenFX |
-| [Adobe After Effects](https://www.adobe.com/products/aftereffects.html)     | Adobe |
-| [Adobe Premiere](https://www.adobe.com/products/premiere.html)              | Adobe |
-| [Kdenlive](https://www.kdenlive.org/)                                       | frei0r |
-| [Shotcut](https://www.shotcut.org/)                                         | frei0r |
-| [FFMpeg](https://ffmpeg.org)                                                | frei0r |
-| [MLT](https://www.mltframework.org/)                                        | frei0r |
-| [LiquidSoap](https://www.liquidsoap.info/)                                  | frei0r |
-| [PureData](https://puredata.info/)                                          | frei0r |
-| [Open Movie Editor](http://www.openmovieeditor.org/)                        | frei0r |
-| [Gephex](https://gephex.org/)                                               | frei0r |
-| [LiVES](http://lives.sf.net)                                                | frei0r |
-| [FreeJ](https://freej.dyne.org)                                             | frei0r |
-| [VeeJay](http://veejayhq.net)                                               | frei0r |
-| [Flowblade](https://jliljebl.github.io/flowblade/)                          | frei0r |
+| Plugin type | Applications | Download |
+| ------------- | ------------- | ------------- |
+| **OpenFX** | * [DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve)<br>* [Assimilate SCRATCH](https://www.assimilateinc.com/products/)<br>* [The Foundry Nuke](https://www.foundry.com/products/nuke-family/nuke)<br>* [MAGIX Vegas](https://www.vegascreativesoftware.com/us/vegas-pro/) | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) |
+| **Adobe**  | * [Adobe After Effects](https://www.adobe.com/products/aftereffects.html)<br>* [Adobe Premiere](https://www.adobe.com/products/premiere.html) | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) |
+| **frei0r**  | * [Kdenlive](https://www.kdenlive.org/)<br>* [Shotcut](https://www.shotcut.org/)<br>* [FFMpeg](https://ffmpeg.org)<br>* [MLT](https://www.mltframework.org/)<br>* [LiquidSoap](https://www.liquidsoap.info/)<br>* [PureData](https://puredata.info/)<br>* [Open Movie Editor](http://www.openmovieeditor.org/)<br>* [Gephex](https://gephex.org/)<br>* [LiVES](http://lives.sf.net)<br>* [FreeJ](https://freej.dyne.org)<br>* [VeeJay](http://veejayhq.net)<br>* [Flowblade](https://jliljebl.github.io/flowblade/) | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) |
 
 ## License
 
