@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!DOCTYPE kpartgui>
+<effect tag="frei0r.gyroflow" id="frei0r.gyroflow" type="video">
+    <name>Gyroflow</name>
+    <description>Gyroflow video stabilization</description>
+    <author>AdrianEddy</author>
+    <parameter type="url" name="Project" filter="Project or video (*.gyroflow *.mp4 *.mov)">
+        <name>Project file</name>
+    </parameter>
+    <parameter type="constant" name="Smoothness" factor="100" default="50" min="1" max="100" >
+        <name>Smoothness</name>
+    </parameter>
+    <parameter type="bool" name="Overview" default="0">
+        <name>Stabilization overview</name>
+    </parameter>
+</effect>
