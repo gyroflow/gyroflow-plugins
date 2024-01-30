@@ -3,7 +3,6 @@ name = "gyroflow_adobe"
 version = "0.0.1"
 authors = ["Adrian <adrian.eddy@gmail.com>"]
 edition = "2021"
-license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib"]

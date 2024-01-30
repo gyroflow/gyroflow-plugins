@@ -7,7 +7,7 @@ use frei0r::*;
 use cstr::cstr;
 use std::sync::{ Arc, atomic::AtomicBool };
 
-use gyroflow_plugin_base::gyroflow_core::{ StabilizationManager, filesystem, stabilization::RGBA8 };
+use gyroflow_plugin_base::gyroflow_core::{ StabilizationManager, filesystem, stabilization::RGBA8, stabilization::Interpolation };
 use gyroflow_plugin_base::gyroflow_core::gpu::{ BufferDescription, Buffers, BufferSource };
 use gyroflow_plugin_base::GyroflowPluginBase;
 
@@ -74,7 +74,7 @@ extern "C" fn f0r_construct(width: ::std::os::raw::c_uint, height: ::std::os::ra
     {
         let mut stab = stab.stabilization.write();
         stab.share_wgpu_instances = true;
-        stab.interpolation = gyroflow_core::stabilization::Interpolation::Lanczos4;
+        stab.interpolation = Interpolation::Lanczos4;
     }
 
     let id = Box::new(Instance { width: width as usize, height: height as usize, stab, time_scale: 1.0, ..Default::default() });
