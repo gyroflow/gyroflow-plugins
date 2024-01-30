@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../gyroflow/src/core"
+		},
+		{
+			"path": "../after-effects"
+		},
+		{
+			"path": "../ofx-rs"
+		}
+	],
+	"settings": {}
+}

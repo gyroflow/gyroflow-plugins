@@ -1,0 +1,30 @@
+[package]
+name = "gyroflow_adobe"
+version = "0.0.1"
+authors = ["Adrian <adrian.eddy@gmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gyroflow-plugin-base = { path = "../common" }
+after-effects = { path = "../../after-effects" }
+after-effects-sys = { path = "../../after-effects/after-effects-sys" }
+log = "0.4"
+serde = "1.0"
+bincode = "1.3"
+pretty-hex = "0.4"
+
+win_dbg_logger = "0.1"
+log-panics = "2.1"
+
+[build-dependencies]
+pipl = { path = "../../after-effects/pipl" }
+
+[profile.deploy]
+inherits = "release"
+codegen-units = 1
+lto = true
+strip = true
