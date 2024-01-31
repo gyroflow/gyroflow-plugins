@@ -124,8 +124,9 @@ impl Instance {
                                 rect: Some(src_rect),
                                 data: match what_gpu {
                                     #[cfg(any(target_os = "macos", target_os = "ios"))]
-                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: in_ptr, command_queue: device_info.command_queuePV },
+                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: in_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
                                     ae::GpuFramework::OpenCl => BufferSource::OpenCL      { texture: in_ptr, queue: device_info.command_queuePV },
+                                    #[cfg(any(target_os = "windows", target_os = "linux"))]
                                     ae::GpuFramework::Cuda   => BufferSource::CUDABuffer  { buffer: in_ptr },
                                     _ => panic!("Invalid GPU framework")
                                 },
@@ -137,8 +138,9 @@ impl Instance {
                                 rect: None,
                                 data: match what_gpu {
                                     #[cfg(any(target_os = "macos", target_os = "ios"))]
-                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: out_ptr, command_queue: device_info.command_queuePV },
+                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
                                     ae::GpuFramework::OpenCl => BufferSource::OpenCL      { texture: out_ptr, queue: std::ptr::null_mut() },
+                                    #[cfg(any(target_os = "windows", target_os = "linux"))]
                                     ae::GpuFramework::Cuda   => BufferSource::CUDABuffer  { buffer: out_ptr },
                                     _ => panic!("Invalid GPU framework")
                                 },
@@ -356,7 +358,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                                 if !footage_path.is_empty() {
                                     let project_path = GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned());
                                     let _self = self.get().unwrap();
-                                    // _self.write().gyroflow.parameters.fields.stored.project_path = project_path;
+                                    _self.write().gyroflow.parameters.fields.stored.project_path = project_path;
                                 }
                             }
                         }

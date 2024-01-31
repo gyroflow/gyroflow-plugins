@@ -9,8 +9,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 gyroflow-plugin-base = { path = "../common" }
-after-effects = { path = "../../after-effects" }
-after-effects-sys = { path = "../../after-effects/after-effects-sys" }
+after-effects = { git = "https://github.com/AdrianEddy/after-effects.git" }
+after-effects-sys = { git = "https://github.com/AdrianEddy/after-effects.git" }
+#after-effects = { path = "../../after-effects" }
+#after-effects-sys = { path = "../../after-effects/after-effects-sys" }
 log = "0.4"
 serde = "1.0"
 bincode = "1.3"
@@ -20,7 +22,8 @@ win_dbg_logger = "0.1"
 log-panics = "2.1"
 
 [build-dependencies]
-pipl = { path = "../../after-effects/pipl" }
+#pipl = { path = "../../after-effects/pipl" }
+pipl = { git = "https://github.com/AdrianEddy/after-effects.git" }
 
 [profile.deploy]
 inherits = "release"

@@ -9,7 +9,7 @@ export LIBCLANG_PATH := if os() == "macos" { DYLD_FALLBACK_LIBRARY_PATH } else {
 export PATH := LIBCLANG_PATH + (if os() == "windows" { ";" } else { ":" }) + env_var('PATH')
 
 export CARGO_TARGET_DIR := justfile_directory() / "target"
-export RUSTFLAGS := "-L {{ExtDir}}/vcpkg/installed/x64-windows-release/lib/ -L {{ExtDir}}/vcpkg/installed/x64-linux-release/lib/"
+export RUSTFLAGS := "-L " + ExtDir + "/vcpkg/installed/x64-windows-release/lib/ -L " + ExtDir + "/vcpkg/installed/x64-linux-release/lib/"
 
 adobe *param:
     just -f adobe/Justfile {{param}}
@@ -21,7 +21,7 @@ frei0r *param:
     just -f frei0r/Justfile {{param}}
 
 deploy:
-    #just -f adobe/Justfile deploy
+    just -f adobe/Justfile deploy
     just -f openfx/Justfile deploy
     just -f frei0r/Justfile deploy
 

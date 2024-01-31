@@ -1,5 +1,44 @@
-PluginName       := "Gyroflow"
-BundleIdentifier := "xyz.gyroflow.adobe"
-BinaryName       := "gyroflow_adobe"
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-import '../../after-effects/Justfile'
+TargetDir := env_var_or_default("CARGO_TARGET_DIR", "target")
+
+[windows]
+deploy:
+    #!powershell
+    $ErrorActionPreference = 'Stop'
+
+    cargo build --profile deploy
+    cd "{{TargetDir}}"
+    Copy-Item -Force "deploy\gyroflow_adobe.dll" "Gyroflow-Adobe-windows.aex"
+
+[macos]
+deploy:
+    #!/bin/bash
+    set -e
+
+    rustup target add aarch64-apple-darwin
+    rustup target add x86_64-apple-darwin
+
+    cargo build --profile deploy --target x86_64-apple-darwin
+    cargo build --profile deploy --target aarch64-apple-darwin
+
+    cd "{{TargetDir}}"
+    rm -Rf gyroflow-adobe-macos Gyroflow-Adobe-macos.dmg
+    mkdir -p gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources
+    mkdir -p gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS
+
+    echo "eFKTFXTC" >> gyroflow-adobe-macos/Gyroflow.plugin/Contents/PkgInfo
+    /usr/libexec/PlistBuddy -c 'add CFBundleIdentifier string xyz.gyroflow.adobe' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
+
+    cp x86_64-apple-darwin/deploy/gyroflow_adobe.rsrc gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources/Gyroflow.rsrc
+
+    lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_adobe.dylib -create -output gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib
+
+    codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-adobe-macos/Gyroflow.plugin
+    codesign -vvvv --deep --verify gyroflow-adobe-macos/Gyroflow.plugin
+
+    ln -sf "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/" "gyroflow-adobe-macos/"
+    hdiutil create "Gyroflow-Adobe.dmg" -volname "Gyroflow Adobe plugin" -fs HFS+ -srcfolder "gyroflow-adobe-macos/" -ov -format UDZO -imagekey zlib-level=9
+
+    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} "Gyroflow-Adobe-macos.dmg"
+    codesign -vvvv --deep --verify "Gyroflow-Adobe-macos.dmg"

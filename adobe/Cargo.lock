@@ -11,6 +11,7 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 [[package]]
 name = "after-effects"
 version = "0.1.6"
+source = "git+https://github.com/AdrianEddy/after-effects.git#85bc577eeef1d94d97cc6d8d35c65757fa9e37df"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -33,6 +34,7 @@ dependencies = [
 [[package]]
 name = "after-effects-sys"
 version = "0.1.6"
+source = "git+https://github.com/AdrianEddy/after-effects.git#85bc577eeef1d94d97cc6d8d35c65757fa9e37df"
 dependencies = [
  "bindgen",
 ]
@@ -2771,6 +2773,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.0"
+source = "git+https://github.com/AdrianEddy/after-effects.git#85bc577eeef1d94d97cc6d8d35c65757fa9e37df"
 dependencies = [
  "bitflags 2.4.2",
  "byteorder",

@@ -55,10 +55,10 @@ jobs:
         run: |
           just install-deps
           just deploy
-          xcrun notarytool submit --wait --apple-id ${{ secrets.MACOS_ACCOUNT_USER }} --team-id ${{ secrets.MACOS_TEAM }} --password ${{ secrets.MACOS_ACCOUNT_PASS }} ${{ github.workspace }}/openfx/target/Gyroflow-OpenFX.dmg
-          xcrun stapler staple --verbose ${{ github.workspace }}/openfx/target/Gyroflow-OpenFX.dmg
-          #xcrun notarytool submit --wait --apple-id ${{ secrets.MACOS_ACCOUNT_USER }} --team-id ${{ secrets.MACOS_TEAM }} --password ${{ secrets.MACOS_ACCOUNT_PASS }} ${{ github.workspace }}/adobe/target/Gyroflow-Adobe.dmg
-          #xcrun stapler staple --verbose ${{ github.workspace }}/adobe/target/Gyroflow-Adobe.dmg
+          xcrun notarytool submit --wait --apple-id ${{ secrets.MACOS_ACCOUNT_USER }} --team-id ${{ secrets.MACOS_TEAM }} --password ${{ secrets.MACOS_ACCOUNT_PASS }} ${{ github.workspace }}/target/Gyroflow-OpenFX-macos.dmg
+          xcrun stapler staple --verbose ${{ github.workspace }}/target/Gyroflow-OpenFX-macos.dmg
+          xcrun notarytool submit --wait --apple-id ${{ secrets.MACOS_ACCOUNT_USER }} --team-id ${{ secrets.MACOS_TEAM }} --password ${{ secrets.MACOS_ACCOUNT_PASS }} ${{ github.workspace }}/target/Gyroflow-Adobe-macos.dmg
+          xcrun stapler staple --verbose ${{ github.workspace }}/target/Gyroflow-Adobe-macos.dmg
 
       - name: Build plugins (Linux)
         if: ${{ matrix.targets.type == 'linux' }}
@@ -81,13 +81,19 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-OpenFX-${{ matrix.targets.type }}
-          path: openfx/target/Gyroflow-OpenFX*
+          path: target/Gyroflow-OpenFX*
+
+      - name: Save Binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: Gyroflow-Adobe-${{ matrix.targets.type }}
+          path: target/Gyroflow-Adobe*
 
       - name: Save Binaries
         uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-frei0r-${{ matrix.targets.type }}
-          path: frei0r/target/libgyroflow_frei0r*
+          path: target/libgyroflow_frei0r*
 
   github_release:
     name: Create GitHub release
