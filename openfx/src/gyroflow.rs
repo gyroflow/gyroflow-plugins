@@ -255,7 +255,7 @@ impl Execute for GyroflowPlugin {
                         { None }
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
                         {
-                            instance_data.disable_opencl();
+                            instance_data.plugin.disable_opencl();
                             let command_queue = in_args.get_metal_command_queue()? as *mut metal::MTLCommandQueue;
 
                             Some((

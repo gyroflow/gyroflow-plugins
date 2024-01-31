@@ -1,6 +1,6 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-TargetDir := "target"
+TargetDir := env_var_or_default("CARGO_TARGET_DIR", "target")
 
 [windows]
 release:

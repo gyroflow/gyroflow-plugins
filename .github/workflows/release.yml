@@ -23,6 +23,7 @@ jobs:
           override: true
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-directories: ${{ github.workspace }}/target
           key: ${{ matrix.targets.type }}-gyroflow-plugins-0
 
       - name: Prepare Vulkan SDK

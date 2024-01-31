@@ -8,6 +8,8 @@ export MACOSX_DEPLOYMENT_TARGET := "10.15"
 export LIBCLANG_PATH := if os() == "macos" { DYLD_FALLBACK_LIBRARY_PATH } else { if path_exists(ExtDir / "llvm/bin") == "true" { ExtDir / "llvm/bin" } else { env_var_or_default("LIBCLANG_PATH", if path_exists("/usr/lib/llvm-13/lib/") == "true" { "/usr/lib/llvm-13/lib/" } else { "" }) } }
 export PATH := LIBCLANG_PATH + (if os() == "windows" { ";" } else { ":" }) + env_var('PATH')
 
+export CARGO_TARGET_DIR := justfile_directory() / "target"
+
 adobe *param:
     just -f adobe/Justfile {{param}}
 
