@@ -22,6 +22,12 @@ deploy:
     just -f openfx/Justfile deploy
     just -f frei0r/Justfile deploy
 
+update:
+    cd common/ ; cargo update
+    cd adobe/ ; cargo update
+    cd openfx/ ; cargo update
+    cd frei0r/ ; cargo update
+
 publish version:
     #!/bin/bash
     git clone --depth 1 git@github.com:gyroflow/gyroflow-plugins.git __publish
@@ -88,7 +94,7 @@ install-deps:
     cd {{ExtDir}}
 
     # OpenCL
-    if [ ! -f "vcpkg/installed/x64-osx-release/lib/OpenCL.lib" ]; then
+    if [ ! -f "vcpkg/installed/x64-osx-release/lib/libOpenCL.a" ]; then
         git clone --depth 1 https://github.com/Microsoft/vcpkg.git || true
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
         ./vcpkg/vcpkg install "opencl:x64-osx-release"
@@ -101,7 +107,7 @@ install-deps:
         curl -L https://api.gyroflow.xyz/sdk/AdobeSDK.zip -o AdobeSDK.zip
         7z x -aoa AdobeSDK.zip
         rm AdobeSDK.zip
-    }
+    fi
 
 [linux]
 install-deps:
@@ -114,7 +120,7 @@ install-deps:
     cd {{ExtDir}}
 
     # OpenCL
-    if [ ! -f "./lib/libopencv_core4.a" ]; then
+    if [ ! -f "./vcpkg/installed/x64-linux-release/lib/libOpenCL.a" ]; then
         git clone --depth 1 https://github.com/Microsoft/vcpkg.git || true
         ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
         ./vcpkg/vcpkg install "opencl:x64-linux-release"
@@ -131,4 +137,4 @@ install-deps:
         curl -L https://api.gyroflow.xyz/sdk/AdobeSDK.zip -o AdobeSDK.zip
         7z x -aoa AdobeSDK.zip
         rm AdobeSDK.zip
-    }
+    fi

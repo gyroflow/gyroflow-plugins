@@ -35,7 +35,7 @@ version = "0.6.0"
 source = "git+https://github.com/jmagnuson/ahrs-rs.git?rev=bf7b41d#bf7b41d09115b47ce8f6060624ed6a8a9bc445d4"
 dependencies = [
  "nalgebra 0.32.3",
- "num-traits 0.2.17",
+ "num-traits",
  "simba 0.8.1",
 ]
 
@@ -101,7 +101,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
 dependencies = [
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -144,7 +144,7 @@ dependencies = [
  "anyhow",
  "argmin-math",
  "instant",
- "num-traits 0.2.17",
+ "num-traits",
  "paste",
  "rand",
  "rand_xoshiro",
@@ -162,7 +162,7 @@ dependencies = [
  "nalgebra 0.32.3",
  "num-complex",
  "num-integer",
- "num-traits 0.2.17",
+ "num-traits",
  "rand",
  "thiserror",
 ]
@@ -648,15 +648,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
-name = "cgl"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ced0551234e87afee12411d535648dd89d2e7f34c78b753395567aff3d447ff"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -665,7 +656,7 @@ dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "js-sys",
- "num-traits 0.2.17",
+ "num-traits",
  "wasm-bindgen",
  "windows-targets 0.52.0",
 ]
@@ -695,15 +686,6 @@ checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
  "half",
-]
-
-[[package]]
-name = "cl-sys"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4febd824a957638c066180fbf72b2bed5bcee33740773f3dc59fe91f0a3e6595"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -850,28 +832,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-epoch",
- "crossbeam-queue",
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-channel"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176dc175b78f56c0f321911d9c8eb2b77a78a4860b9c19db83835fea1a46649b"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-deque"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -886,15 +846,6 @@ name = "crossbeam-epoch"
 version = "0.9.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
-name = "crossbeam-queue"
-version = "0.3.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0346b5d5e76ac2fe4e327c5fd1118d6be7c51dfb18f9b7922923f287471e35"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -949,7 +900,7 @@ source = "git+https://github.com/rust-cv/cv.git?rev=82a25ee#82a25ee3a88c12002741
 dependencies = [
  "derive_more",
  "nalgebra 0.30.1",
- "num-traits 0.2.17",
+ "num-traits",
  "sample-consensus",
 ]
 
@@ -962,7 +913,7 @@ dependencies = [
  "derive_more",
  "float-ord",
  "nalgebra 0.30.1",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -971,7 +922,7 @@ version = "0.19.0"
 source = "git+https://github.com/gfx-rs/wgpu.git?rev=443d5f9#443d5f93dc7a74bf2ca759f86c813a3c99818b18"
 dependencies = [
  "bitflags 2.4.2",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "winapi",
 ]
 
@@ -1057,7 +1008,7 @@ dependencies = [
  "cv-pinhole",
  "derive_more",
  "float-ord",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -1073,7 +1024,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fadf5c8cbf7c6765ff05ccbd8811cd7bc3a763e4671755204552bf8740d042a"
 dependencies = [
  "assert_float_eq",
- "num-traits 0.2.17",
+ "num-traits",
  "serde",
  "topology-traits",
 ]
@@ -1100,15 +1051,6 @@ dependencies = [
  "quote",
  "rand",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "enum_primitive"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
-dependencies = [
- "num-traits 0.1.43",
 ]
 
 [[package]]
@@ -1261,7 +1203,7 @@ dependencies = [
  "itertools 0.10.5",
  "nom 6.1.2",
  "num-rational",
- "num-traits 0.2.17",
+ "num-traits",
  "thiserror",
 ]
 
@@ -1362,12 +1304,6 @@ name = "funty"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed34cd105917e91daa4da6b3728c47b068749d6a62c59811f06ed2ac71d9da7"
-
-[[package]]
-name = "futures"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a471a38ef8ed83cd6e40aa59c1ffe17db6855c18e3604d9c4ed8c08ebc28678"
 
 [[package]]
 name = "futures-channel"
@@ -1604,6 +1540,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=653b564#653b564628353836d8519e10c5b66233ff991ff7"
 dependencies = [
  "ahrs",
  "akaze",
@@ -1649,8 +1586,6 @@ dependencies = [
  "nt-hive",
  "num",
  "objc-foundation",
- "ocl",
- "ocl-interop",
  "parking_lot",
  "pollster",
  "rand",
@@ -1841,7 +1776,7 @@ dependencies = [
  "exr",
  "gif",
  "jpeg-decoder",
- "num-traits 0.2.17",
+ "num-traits",
  "png",
  "qoi",
  "tiff",
@@ -2078,7 +2013,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d1478a313008a3e6c8149995e90a99ee9094034b5c5c3da1eeb81183cb61d1d"
 dependencies = [
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2223,7 +2158,7 @@ dependencies = [
  "byteorder",
  "fallible_collections",
  "log",
- "num-traits 0.2.17",
+ "num-traits",
  "static_assertions",
 ]
 
@@ -2239,7 +2174,7 @@ dependencies = [
  "hexf-parse",
  "indexmap",
  "log",
- "num-traits 0.2.17",
+ "num-traits",
  "petgraph",
  "rustc-hash",
  "spirv",
@@ -2258,7 +2193,7 @@ dependencies = [
  "matrixmultiply",
  "num-complex",
  "num-rational",
- "num-traits 0.2.17",
+ "num-traits",
  "simba 0.7.3",
  "typenum",
 ]
@@ -2274,7 +2209,7 @@ dependencies = [
  "nalgebra-macros",
  "num-complex",
  "num-rational",
- "num-traits 0.2.17",
+ "num-traits",
  "serde",
  "simba 0.8.1",
  "typenum",
@@ -2309,7 +2244,7 @@ dependencies = [
  "matrixmultiply",
  "num-complex",
  "num-integer",
- "num-traits 0.2.17",
+ "num-traits",
  "rawpointer",
 ]
 
@@ -2354,12 +2289,6 @@ dependencies = [
  "libc",
  "memoffset 0.7.1",
 ]
-
-[[package]]
-name = "nodrop"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nom"
@@ -2418,7 +2347,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-rational",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2429,7 +2358,7 @@ checksum = "608e7659b5c3d7cba262d894801b9ec9d00de989e8a82bd4bef91d08da45cdc0"
 dependencies = [
  "autocfg",
  "num-integer",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2438,7 +2367,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ba157ca0885411de85d6ca030ba7e2a83a28636056c7c699b07c8b6f7383214"
 dependencies = [
- "num-traits 0.2.17",
+ "num-traits",
  "serde",
 ]
 
@@ -2449,7 +2378,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
 dependencies = [
  "autocfg",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2460,7 +2389,7 @@ checksum = "7d03e6c028c5dc5cac6e2dec0efda81fc887605bb3d884578bb6d6bf7514e252"
 dependencies = [
  "autocfg",
  "num-integer",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2472,16 +2401,7 @@ dependencies = [
  "autocfg",
  "num-bigint",
  "num-integer",
- "num-traits 0.2.17",
-]
-
-[[package]]
-name = "num-traits"
-version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92e5113e9fd4cc14ded8e499429f396a20f98c772a47cc8622a736e1ec843c31"
-dependencies = [
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -2561,56 +2481,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c92d4ddb4bd7b50d730c215ff871754d0da6b2178849f8a2a2ab69712d0c073b"
 dependencies = [
  "objc",
-]
-
-[[package]]
-name = "ocl"
-version = "0.19.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1c3ce118fd2f00eeb3c01f8073db1ee127cac0b2f79848192c7889b2bd7fe40"
-dependencies = [
- "futures",
- "nodrop",
- "num-traits 0.2.17",
- "ocl-core",
- "qutex",
- "thiserror",
-]
-
-[[package]]
-name = "ocl-core"
-version = "0.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c145dd9f205b86611a5df15eb89517417b03005441cf6cec245c65a4b9248c52"
-dependencies = [
- "bitflags 1.3.2",
- "cl-sys",
- "enum_primitive",
- "num-complex",
- "num-traits 0.2.17",
- "ocl-core-vector",
- "rustc_version",
- "thiserror",
-]
-
-[[package]]
-name = "ocl-core-vector"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f562279e046ca160aeed5eaf6f7c4eb9fa56cb8fd9d038dbdbf56225caeb8074"
-dependencies = [
- "num-traits 0.2.17",
-]
-
-[[package]]
-name = "ocl-interop"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e69e4b0cb245a6233d6ebd19dd920e2390a9b057e7b5031c3096a572256e026"
-dependencies = [
- "cgl",
- "gl_generator",
- "ocl",
 ]
 
 [[package]]
@@ -2949,16 +2819,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qutex"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cda4a51ba3d773c196f9450a6b239077ad8dda608b15263b4c9f29e58909883f"
-dependencies = [
- "crossbeam",
- "futures",
-]
-
-[[package]]
 name = "radium"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3166,7 +3026,7 @@ checksum = "43806561bc506d0c5d160643ad742e3161049ac01027b5e6d7524091fd401d86"
 dependencies = [
  "num-complex",
  "num-integer",
- "num-traits 0.2.17",
+ "num-traits",
  "primal-check",
  "strength_reduce",
  "transpose",
@@ -3364,7 +3224,7 @@ checksum = "2f3fd720c48c53cace224ae62bef1bbff363a70c68c4802a78b5cc6159618176"
 dependencies = [
  "approx",
  "num-complex",
- "num-traits 0.2.17",
+ "num-traits",
  "paste",
  "wide",
 ]
@@ -3378,7 +3238,7 @@ dependencies = [
  "approx",
  "libm 0.2.8",
  "num-complex",
- "num-traits 0.2.17",
+ "num-traits",
  "paste",
  "wide",
 ]
@@ -3446,7 +3306,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5ab9701ae895386d13db622abf411989deff7109b13b46b6173bb4ce5c1d123"
 dependencies = [
  "doc-comment",
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -3475,7 +3335,7 @@ checksum = "53ad6bf0206aea3e6ac6283cb88ef397239cd2d9276b8f71854d60ac2cf94e0b"
 dependencies = [
  "bitflags 1.3.2",
  "glam",
- "num-traits 0.2.17",
+ "num-traits",
  "spirv-std-macros",
  "spirv-std-types",
 ]
@@ -3501,6 +3361,7 @@ checksum = "5cce2183deb9e7ada727867823fb8bbbc8b56e503801a332d155dde613130e1b"
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=653b564#653b564628353836d8519e10c5b66233ff991ff7"
 dependencies = [
  "spirv-std",
 ]
@@ -3734,7 +3595,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0c8dab428531e30115d3bfd6e3092b55256a4a7b4f87cb3abe37a000b1f4032"
 dependencies = [
- "num-traits 0.2.17",
+ "num-traits",
 ]
 
 [[package]]
@@ -4069,7 +3930,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading 0.7.4",
+ "libloading 0.8.1",
  "log",
  "metal",
  "naga",
