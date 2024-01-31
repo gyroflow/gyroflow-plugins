@@ -15,7 +15,7 @@
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>####VERSION####</string>
+	<string>1.3.0</string>
 	<key>CSResourcesFileMapped</key>
 	<true/>
 </dict>

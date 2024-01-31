@@ -1,0 +1,28 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+TargetDir := "target"
+
+[windows]
+deploy:
+    #!powershell
+    cargo build --profile deploy
+    cd "{{TargetDir}}"
+
+    cp "deploy/gyroflow_frei0r.dll" "gyroflow_frei0r.dll"
+
+[macos]
+deploy:
+    #!/bin/bash
+    set -e
+    cargo build --profile deploy --target x86_64-apple-darwin
+    cargo build --profile deploy --target aarch64-apple-darwin
+    cd "{{TargetDir}}"
+
+    lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_frei0r.dylib -create -output libgyroflow_frei0r.dylib
+    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} libgyroflow_frei0r.dylib
+
+[linux]
+deploy:
+    cargo build --profile deploy
+    cd "{{TargetDir}}"
+    cp deploy/libgyroflow_frei0r.so libgyroflow_frei0r.so
