@@ -42,3 +42,7 @@ deploy:
 
     codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} "Gyroflow-Adobe-macos.dmg"
     codesign -vvvv --deep --verify "Gyroflow-Adobe-macos.dmg"
+
+[linux]
+deploy:
+    # No Adobe for linux
