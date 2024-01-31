@@ -9,6 +9,7 @@ export LIBCLANG_PATH := if os() == "macos" { DYLD_FALLBACK_LIBRARY_PATH } else {
 export PATH := LIBCLANG_PATH + (if os() == "windows" { ";" } else { ":" }) + env_var('PATH')
 
 export CARGO_TARGET_DIR := justfile_directory() / "target"
+export RUSTFLAGS := "-L {{ExtDir}}/vcpkg/installed/x64-windows-release/lib/ -L {{ExtDir}}/vcpkg/installed/x64-linux-release/lib/"
 
 adobe *param:
     just -f adobe/Justfile {{param}}
@@ -89,8 +90,6 @@ install-deps:
 
     brew install p7zip pkg-config
     xcode-select --install || true
-    rustup target add aarch64-apple-darwin
-    rustup target add x86_64-apple-darwin
 
     mkdir -p {{ExtDir}}
     cd {{ExtDir}}
@@ -105,7 +104,7 @@ install-deps:
     fi
 
     # Adobe SDK
-    if [ ! -f "AfterEffects" ]; then
+    if [ ! -f "AfterEffects/Examples/Headers/AE_Effect.h" ]; then
         curl -L https://api.gyroflow.xyz/sdk/AdobeSDK.zip -o AdobeSDK.zip
         7z x -aoa AdobeSDK.zip
         rm AdobeSDK.zip
@@ -135,7 +134,7 @@ install-deps:
     fi
 
     # Adobe SDK
-    if [ ! -f "AfterEffects" ]; then
+    if [ ! -f "AfterEffects/Examples/Headers/AE_Effect.h" ]; then
         curl -L https://api.gyroflow.xyz/sdk/AdobeSDK.zip -o AdobeSDK.zip
         7z x -aoa AdobeSDK.zip
         rm AdobeSDK.zip

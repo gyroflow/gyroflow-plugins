@@ -10,6 +10,8 @@ release:
 [windows]
 deploy:
     #!powershell
+    $ErrorActionPreference = 'Stop'
+
     cargo build --profile deploy
     cd "{{TargetDir}}"
     Remove-Item -Recurse -Force gyroflow-ofx-windows, Gyroflow-OpenFX-windows.zip -ErrorAction SilentlyContinue
@@ -23,35 +25,43 @@ deploy:
 deploy:
     #!/bin/bash
     set -e
+
+    rustup target add aarch64-apple-darwin
+    rustup target add x86_64-apple-darwin
+
     cargo build --profile deploy --target x86_64-apple-darwin
     cargo build --profile deploy --target aarch64-apple-darwin
+
     cd "{{TargetDir}}"
-    rm -Rf gyroflow-ofx-macosx gyroflow-ofx-macosx.dmg
-    mkdir -p gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/MacOS
+    rm -Rf gyroflow-ofx-macos gyroflow-ofx-macos.dmg
+    mkdir -p gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS
 
-    lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_ofx.dylib -create -output gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
-    cp "{{justfile_directory()}}/res/Info.plist" gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/
-    cp "{{justfile_directory()}}/../LICENSE"     gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/
+    lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_ofx.dylib -create -output gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
+    cp "{{justfile_directory()}}/res/Info.plist" gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/
+    cp "{{justfile_directory()}}/../LICENSE"     gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/
 
-    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
-    mv gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macosx/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.ofx
+    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
+    mv gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.ofx
 
-    codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macosx/Gyroflow.ofx.bundle
-    codesign -vvvv --deep --verify gyroflow-ofx-macosx/Gyroflow.ofx.bundle
+    codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/Gyroflow.ofx.bundle
+    codesign -vvvv --deep --verify gyroflow-ofx-macos/Gyroflow.ofx.bundle
 
-    ln -sf /Library/OFX/Plugins "gyroflow-ofx-macosx/"
-    hdiutil create "Gyroflow-OpenFX.dmg" -volname "Gyroflow OpenFX plugin" -fs HFS+ -srcfolder "gyroflow-ofx-macosx/" -ov -format UDZO -imagekey zlib-level=9
+    ln -sf /Library/OFX/Plugins "gyroflow-ofx-macos/"
+    hdiutil create "Gyroflow-OpenFX.dmg" -volname "Gyroflow OpenFX plugin" -fs HFS+ -srcfolder "gyroflow-ofx-macos/" -ov -format UDZO -imagekey zlib-level=9
 
     codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} "Gyroflow-OpenFX.dmg"
     codesign -vvvv --deep --verify "Gyroflow-OpenFX.dmg"
 
 [linux]
 deploy:
+    #!/bin/bash
+    set -e
+
     cargo build --profile deploy
     cd "{{TargetDir}}"
-    rm -Rf gyroflow-ofx-linux gyroflow-ofx-linux.zip
+    rm -Rf gyroflow-ofx-linux Gyroflow-OpenFX-linux.zip
     mkdir -p gyroflow-ofx-linux/Gyroflow.ofx.bundle/Contents/Linux-x86-64
     cp deploy/libgyroflow_ofx.so gyroflow-ofx-linux/Gyroflow.ofx.bundle/Contents/Linux-x86-64/Gyroflow.ofx
     cp "{{justfile_directory()}}/res/Info.plist" gyroflow-ofx-linux/Gyroflow.ofx.bundle/Contents/
     cp "{{justfile_directory()}}/../LICENSE"     gyroflow-ofx-linux/Gyroflow.ofx.bundle/Contents/
-    cd gyroflow-ofx-linux && zip -r ../gyroflow-ofx-linux.zip .
+    cd gyroflow-ofx-linux && zip -r ../Gyroflow-OpenFX-linux.zip .

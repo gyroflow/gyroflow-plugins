@@ -87,7 +87,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-frei0r-${{ matrix.targets.type }}
-          path: frei0r/target/*gyroflow_frei0r*
+          path: frei0r/target/libgyroflow_frei0r*
 
   github_release:
     name: Create GitHub release
