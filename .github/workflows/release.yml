@@ -21,9 +21,12 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
-      - uses: Swatinem/rust-cache@v2
+      - name: Rust cache
+        uses: actions/cache@v4
         with:
-          cache-directories: ${{ github.workspace }}/target
+          path: |
+            $HOME/.cargo
+            ${{ github.workspace }}/target
           key: ${{ matrix.targets.type }}-gyroflow-plugins-0
 
       - name: Prepare Vulkan SDK
