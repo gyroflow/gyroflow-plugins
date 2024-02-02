@@ -109,7 +109,7 @@ impl Instance {
 
                     let gpu_suite = ae::pf::GPUDeviceSuite1::new();
 
-                    let mut buffers = if is_gpu && !gpu_suite.is_err() {
+                    let buffers = if is_gpu && !gpu_suite.is_err() {
                         let gpu_suite = gpu_suite.unwrap(); // Safe because we checked for error above
                         let device_info = gpu_suite.get_device_info(in_data, extra.device_index())?;
 
@@ -118,55 +118,36 @@ impl Instance {
 
                         log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {what_gpu:?}, pixel_format: {pixel_format:?}");
 
-                        Buffers {
-                            input: BufferDescription {
-                                size: src_size,
-                                rect: Some(src_rect),
-                                data: match what_gpu {
-                                    #[cfg(any(target_os = "macos", target_os = "ios"))]
-                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: in_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
-                                    ae::GpuFramework::OpenCl => BufferSource::OpenCL      { texture: in_ptr, queue: device_info.command_queuePV },
-                                    #[cfg(any(target_os = "windows", target_os = "linux"))]
-                                    ae::GpuFramework::Cuda   => BufferSource::CUDABuffer  { buffer: in_ptr },
-                                    _ => panic!("Invalid GPU framework")
-                                },
-                                rotation: None,
-                                texture_copy: true
-                            },
-                            output: BufferDescription {
-                                size: dest_size,
-                                rect: None,
-                                data: match what_gpu {
-                                    #[cfg(any(target_os = "macos", target_os = "ios"))]
-                                    ae::GpuFramework::Metal  => BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
-                                    ae::GpuFramework::OpenCl => BufferSource::OpenCL      { texture: out_ptr, queue: std::ptr::null_mut() },
-                                    #[cfg(any(target_os = "windows", target_os = "linux"))]
-                                    ae::GpuFramework::Cuda   => BufferSource::CUDABuffer  { buffer: out_ptr },
-                                    _ => panic!("Invalid GPU framework")
-                                },
-                                rotation: None,
-                                texture_copy: true
-                            }
+                        match what_gpu {
+                            #[cfg(any(target_os = "windows", target_os = "linux"))]
+                            ae::GpuFramework::Cuda => (
+                                BufferSource::CUDABuffer { buffer: in_ptr },
+                                BufferSource::CUDABuffer { buffer: out_ptr },
+                                true
+                            ),
+                            #[cfg(any(target_os = "macos", target_os = "ios"))]
+                            ae::GpuFramework::Metal => (
+                                BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
+                                BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
+                                true
+                            ),
+                            ae::GpuFramework::OpenCl => (
+                                BufferSource::OpenCL { texture: in_ptr,  queue: device_info.command_queuePV },
+                                BufferSource::OpenCL { texture: out_ptr, queue: std::ptr::null_mut() },
+                                true
+                            ),
+                            _ => panic!("Invalid GPU framework")
                         }
                     } else {
-                        let src = input_world.data_as_ptr_mut();
-                        let dest = output_world.data_as_ptr_mut();
-                        Buffers {
-                            input: BufferDescription {
-                                size: src_size,
-                                rect: Some(src_rect),
-                                data: BufferSource::Cpu { buffer: unsafe { std::slice::from_raw_parts_mut(src, src_size.1 * src_size.2) } },
-                                rotation: None,
-                                texture_copy: false
-                            },
-                            output: BufferDescription {
-                                size: dest_size,
-                                rect: None,
-                                data: BufferSource::Cpu { buffer: unsafe { std::slice::from_raw_parts_mut(dest, dest_size.1 * dest_size.2) } },
-                                rotation: None,
-                                texture_copy: false
-                            }
-                        }
+                        (
+                            BufferSource::Cpu { buffer: unsafe { std::slice::from_raw_parts_mut(input_world.data_as_ptr_mut(),  src_size.1  * src_size.2) } },
+                            BufferSource::Cpu { buffer: unsafe { std::slice::from_raw_parts_mut(output_world.data_as_ptr_mut(), dest_size.1 * dest_size.2) } },
+                            false
+                        )
+                    };
+                    let mut buffers = Buffers {
+                        input:  BufferDescription { size: src_size,  rect: Some(src_rect), data: buffers.0, rotation: None, texture_copy: buffers.2 },
+                        output: BufferDescription { size: dest_size, rect: None,           data: buffers.1, rotation: None, texture_copy: buffers.2 }
                     };
                     log::info!("pixel_format: {pixel_format:?}");
                     let result = match pixel_format {
@@ -228,7 +209,6 @@ impl Instance {
 
         Ok(())
     }
-
 }
 
 impl AdobePluginGlobal for Plugin {

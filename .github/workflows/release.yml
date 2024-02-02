@@ -76,21 +76,18 @@ jobs:
             just install-deps
             just deploy
           "
+          sudo chown -R $(id -u):$(id -g) $HOME/.cargo
+          sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/target
 
-      - name: Save Binaries
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-OpenFX-${{ matrix.targets.type }}
           path: target/Gyroflow-OpenFX*
-
-      - name: Save Binaries
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-Adobe-${{ matrix.targets.type }}
           path: target/Gyroflow-Adobe*
-
-      - name: Save Binaries
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v3
         with:
           name: Gyroflow-frei0r-${{ matrix.targets.type }}
           path: target/libgyroflow_frei0r*

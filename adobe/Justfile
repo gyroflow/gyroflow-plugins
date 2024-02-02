@@ -28,11 +28,14 @@ deploy:
     mkdir -p gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS
 
     echo "eFKTFXTC" >> gyroflow-adobe-macos/Gyroflow.plugin/Contents/PkgInfo
+    /usr/libexec/PlistBuddy -c 'add CFBundlePackageType string eFKT' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
+    /usr/libexec/PlistBuddy -c 'add CFBundleSignature string FXTC' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
     /usr/libexec/PlistBuddy -c 'add CFBundleIdentifier string xyz.gyroflow.adobe' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
 
     cp x86_64-apple-darwin/deploy/gyroflow_adobe.rsrc gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources/Gyroflow.rsrc
 
     lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_adobe.dylib -create -output gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib
+    mv gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow
 
     codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-adobe-macos/Gyroflow.plugin
     codesign -vvvv --deep --verify gyroflow-adobe-macos/Gyroflow.plugin
