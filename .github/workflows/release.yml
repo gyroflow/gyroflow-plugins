@@ -27,6 +27,7 @@ jobs:
           path: |
             $HOME/.cargo
             ${{ github.workspace }}/target
+            C:\Users\runneradmin\.cargo
           key: ${{ matrix.targets.type }}-gyroflow-plugins-0
 
       - name: Prepare Vulkan SDK
