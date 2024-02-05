@@ -84,9 +84,17 @@ impl GyroflowPluginBase {
     pub fn initialize_log(&mut self) {
         if !self.log_initialized {
             log_panics::init();
+
+            #[cfg(target_os = "windows")]
             win_dbg_logger::init();
+
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            oslog::OsLogger::new("xyz.gyroflow")
+                .category_level_filter("ofx", log::LevelFilter::Error)
+                .init()
+                .unwrap();
+
             log::set_max_level(log::LevelFilter::Debug);
-            win_dbg_logger::output_debug_string("GyroflowPluginBase::initialize_log");
             self.log_initialized = true;
 
             /*let mut tmp_log = std::env::temp_dir();

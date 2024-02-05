@@ -209,8 +209,11 @@ impl Execute for GyroflowPlugin {
 
                 let src_stride = source_image.get_row_bytes()? as usize;
                 let out_stride = output_image.get_row_bytes()? as usize;
-                let src_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize, src_stride);
-                let out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize, out_stride);
+                let mut src_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize, src_stride);
+                let mut out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize, out_stride);
+
+                if src_size.2 <= 0 { src_size.2 = src_size.0 * 4 * 4 }; // assuming 32-bit float
+                if out_size.2 <= 0 { out_size.2 = out_size.0 * 4 * 4 }; // assuming 32-bit float
 
                 let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
@@ -255,6 +258,7 @@ impl Execute for GyroflowPlugin {
                         { None }
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
                         {
+                            log::info!("metal: src_size: {src_size:?} | {src_stride}, out_size: {out_size:?} | {out_stride}");
                             instance_data.plugin.disable_opencl();
                             let command_queue = in_args.get_metal_command_queue()? as *mut metal::MTLCommandQueue;
 
@@ -277,6 +281,7 @@ impl Execute for GyroflowPlugin {
                             ))
                         }
                     } else if in_args.get_opengl_enabled().unwrap_or_default() {
+                        log::info!("OpenGL: src_size: {src_size:?} | {src_stride}, out_size: {out_size:?} | {out_stride}");
                         let texture = source_image.get_opengl_texture_index()? as u32;
                         let out_texture = output_image.get_opengl_texture_index()? as u32;
                         let mut src_size = src_size;
@@ -284,13 +289,14 @@ impl Execute for GyroflowPlugin {
                         src_size.2 = src_size.0 * 4 * (source_image.get_pixel_depth()?.bits() / 8);
                         out_size.2 = out_size.0 * 4 * (output_image.get_pixel_depth()?.bits() / 8);
 
-                        // log::info!("OpenGL in: {texture}, out: {out_texture} src_size: {src_size:?}, out_size: {out_size:?}, in_rect: {src_rect:?}, out_rect: {out_rect:?}");
+                        log::info!("OpenGL in: {texture}, out: {out_texture} src_size: {src_size:?}, out_size: {out_size:?}, in_rect: {src_rect:?}, out_rect: {out_rect:?}");
                         Some((
                             BufferSource::OpenGL { texture: texture, context: std::ptr::null_mut() },
                             BufferSource::OpenGL { texture: out_texture, context: std::ptr::null_mut() },
                             true
                         ))
                     } else {
+                        log::info!("CPU: src_size: {src_size:?} | {src_stride}, out_size: {out_size:?} | {out_stride}");
                         use std::slice::from_raw_parts_mut;
                         let src_buf = unsafe { match source_image.get_pixel_depth()? {
                             BitDepth::None  => { return FAILED; }
