@@ -42,7 +42,7 @@ fn main() {
 			OutFlags2::SupportsGpuRenderF32 |
             OutFlags2::ParamGroupStartCollapsedFlag
 		),
-        Property::AE_Effect_Match_Name("ADBE Gyroflow"),
+        Property::AE_Effect_Match_Name("Gyroflow"),
         Property::AE_Reserved_Info(0),
         Property::AE_Effect_Support_URL("https://docs.gyroflow.xyz"),
     ])
