@@ -25,8 +25,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            $HOME/.cargo
             ${{ github.workspace }}/target
+            ~/.cargo
             C:\Users\runneradmin\.cargo
           key: ${{ matrix.targets.type }}-gyroflow-plugins-0
 

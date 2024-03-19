@@ -28,6 +28,7 @@ fn main() {
         },
         Property::AE_Effect_Info_Flags(0),
         Property::AE_Effect_Global_OutFlags(
+			OutFlags::CustomUI |
 			OutFlags::IDoDialog |
 			OutFlags::PixIndependent |
 			OutFlags::DeepColorAware |

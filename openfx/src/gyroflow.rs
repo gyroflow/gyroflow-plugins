@@ -90,7 +90,8 @@ struct InstanceData {
     source_clip: ClipInstance,
     output_clip: ClipInstance,
 
-    plugin: GyroflowPluginBaseInstance<ParamHandler>,
+    params: ParamHandler,
+    plugin: GyroflowPluginBaseInstance,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
@@ -111,7 +112,7 @@ impl InstanceData {
         let in_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize);
         let out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize);
 
-        self.plugin.stab_manager(manager_cache, bit_depth, in_size, out_size, loading_pending_video_file).map_err(|e| {
+        self.plugin.stab_manager(&mut self.params, manager_cache, bit_depth, in_size, out_size, loading_pending_video_file).map_err(|e| {
             log::error!("plugin.stab_manager error: {e:?}");
             Error::UnknownError
         })
@@ -122,10 +123,10 @@ impl InstanceData {
             let lock = self.current_file_info.lock();
             if let Some(ref current_file) = *lock {
                 if let Some(proj) = &current_file.project_path {
-                    self.plugin.parameters.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
+                    self.params.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
                 } else {
                     // Try to use the video directly
-                    self.plugin.parameters.set_string(Params::ProjectPath, &current_file.file_path).unwrap(); // TODO: unwrap
+                    self.params.set_string(Params::ProjectPath, &current_file.file_path).unwrap(); // TODO: unwrap
                     return Ok(true);
                 }
             }
@@ -179,11 +180,11 @@ impl Execute for GyroflowPlugin {
                     }
                 }
                 if (src_fps - fps).abs() > 0.01 {
-                    instance_data.plugin.set_status("Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate!", false);
+                    instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate!", false);
                 } else if !has_accurate_timestamps && !has_offsets {
-                    instance_data.plugin.set_status("Not synced. Open in Gyroflow", "Gyro data is not synced with the video, open the video in Gyroflow and add sync points (eg. by doing autosync)", false);
+                    instance_data.plugin.set_status(&mut instance_data.params, "Not synced. Open in Gyroflow", "Gyro data is not synced with the video, open the video in Gyroflow and add sync points (eg. by doing autosync)", false);
                 } else {
-                    instance_data.plugin.set_status("OK", "OK", true);
+                    instance_data.plugin.set_status(&mut instance_data.params, "OK", "OK", true);
                 }
 
                 speed_stretch *= src_fps / fps;
@@ -217,7 +218,7 @@ impl Execute for GyroflowPlugin {
 
                 let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
-                let mut out_rect = if instance_data.plugin.parameters.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
                     let output_ratio = out_size.0 as f64 / out_size.1 as f64;
                     let mut rect = GyroflowPluginBase::get_center_rect(src_rect.2, src_rect.3, output_ratio);
                     rect.0 += src_rect.0;
@@ -239,7 +240,7 @@ impl Execute for GyroflowPlugin {
                     ));
                 }
 
-                let input_rotation = instance_data.plugin.parameters.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).ok().map(|x| x as f32);
+                let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).ok().map(|x| x as f32);
 
                 // log::debug!("src_size: {src_size:?} | src_rect: {src_rect:?}");
                 // log::debug!("out_size: {out_size:?} | out_rect: {out_rect:?}");
@@ -359,34 +360,34 @@ impl Execute for GyroflowPlugin {
                 let mut instance_data = InstanceData {
                     source_clip,
                     output_clip,
-                    plugin: GyroflowPluginBaseInstance {
-                        parameters: ParamHandler {
-                            instance_id:              param_set.parameter("InstanceId")?,
-                            project_data:             param_set.parameter("ProjectData")?,
-                            embedded_lens:            param_set.parameter("EmbeddedLensProfile")?,
-                            embedded_preset:          param_set.parameter("EmbeddedPreset")?,
-                            project_path:             param_set.parameter("gyrodata")?,
-                            disable_stretch:          param_set.parameter("DisableStretch")?,
-                            status:                   param_set.parameter("Status")?,
-                            open_in_gyroflow:         param_set.parameter("OpenGyroflow")?,
-                            reload_project:           param_set.parameter("ReloadProject")?,
-                            toggle_overview:          param_set.parameter("ToggleOverview")?,
-                            dont_draw_outside:        param_set.parameter("DontDrawOutside")?,
-                            include_project_data:     param_set.parameter("IncludeProjectData")?,
-                            input_rotation:           param_set.parameter("InputRotation")?,
-                            use_gyroflows_keyframes:  param_set.parameter("UseGyroflowsKeyframes")?,
-                            fov:                      param_set.parameter("FOV")?,
-                            smoothness:               param_set.parameter("Smoothness")?,
-                            lens_correction_strength: param_set.parameter("LensCorrectionStrength")?,
-                            horizon_lock_amount:      param_set.parameter("HorizonLockAmount")?,
-                            horizon_lock_roll:        param_set.parameter("HorizonLockRoll")?,
-                            video_speed:              param_set.parameter("VideoSpeed")?,
-                            positionx:                param_set.parameter("PositionX")?,
-                            positiony:                param_set.parameter("PositionY")?,
-                            rotation:                 param_set.parameter("Rotation")?,
+                    params: ParamHandler {
+                        instance_id:              param_set.parameter("InstanceId")?,
+                        project_data:             param_set.parameter("ProjectData")?,
+                        embedded_lens:            param_set.parameter("EmbeddedLensProfile")?,
+                        embedded_preset:          param_set.parameter("EmbeddedPreset")?,
+                        project_path:             param_set.parameter("gyrodata")?,
+                        disable_stretch:          param_set.parameter("DisableStretch")?,
+                        status:                   param_set.parameter("Status")?,
+                        open_in_gyroflow:         param_set.parameter("OpenGyroflow")?,
+                        reload_project:           param_set.parameter("ReloadProject")?,
+                        toggle_overview:          param_set.parameter("ToggleOverview")?,
+                        dont_draw_outside:        param_set.parameter("DontDrawOutside")?,
+                        include_project_data:     param_set.parameter("IncludeProjectData")?,
+                        input_rotation:           param_set.parameter("InputRotation")?,
+                        use_gyroflows_keyframes:  param_set.parameter("UseGyroflowsKeyframes")?,
+                        fov:                      param_set.parameter("FOV")?,
+                        smoothness:               param_set.parameter("Smoothness")?,
+                        lens_correction_strength: param_set.parameter("LensCorrectionStrength")?,
+                        horizon_lock_amount:      param_set.parameter("HorizonLockAmount")?,
+                        horizon_lock_roll:        param_set.parameter("HorizonLockRoll")?,
+                        video_speed:              param_set.parameter("VideoSpeed")?,
+                        positionx:                param_set.parameter("PositionX")?,
+                        positiony:                param_set.parameter("PositionY")?,
+                        rotation:                 param_set.parameter("Rotation")?,
 
-                            fields: Default::default(),
-                        },
+                        fields: Default::default(),
+                    },
+                    plugin: GyroflowPluginBaseInstance {
                         managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
                         original_output_size:           (0, 0),
                         original_video_size:            (0, 0),
@@ -397,6 +398,7 @@ impl Execute for GyroflowPlugin {
                         opencl_disabled:                false,
                         cache_keyframes_every_frame:    true,
                         framebuffer_inverted:           true,
+                        has_motion:                     false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes:  param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                             cached_keyframes:         KeyframeManager::default()
@@ -405,7 +407,9 @@ impl Execute for GyroflowPlugin {
                     current_file_info:              Arc::new(Mutex::new(None)),
                     current_file_info_pending:      Arc::new(AtomicBool::new(false)),
                 };
-                instance_data.plugin.initialize_instance_id();
+                let mut instance_id = instance_data.params.get_string(Params::InstanceId).unwrap_or_default();
+                instance_data.plugin.initialize_instance_id(&mut instance_id);
+                let _ = instance_data.params.set_string(Params::InstanceId, &instance_id);
 
                 effect.set_instance_data(instance_data)?;
 
@@ -417,7 +421,7 @@ impl Execute for GyroflowPlugin {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
                 let param: Params = std::str::FromStr::from_str(in_args.get_name()?.as_str()).unwrap();
-                instance_data.plugin.param_changed(&self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
+                instance_data.plugin.param_changed(&mut instance_data.params, &self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
                     log::error!("param_changed error: {e:?}");
                     Error::InvalidAction
                 })?;
@@ -430,7 +434,7 @@ impl Execute for GyroflowPlugin {
                 let instance_data = effect.get_instance_data::<InstanceData>()?;
                 let rod = instance_data.source_clip.get_region_of_definition(time)?;
                 let mut out_rod = rod;
-                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.plugin.parameters.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
                     out_rod.x2 = instance_data.plugin.original_output_size.0 as f64;
                     out_rod.y2 = instance_data.plugin.original_output_size.1 as f64;
                 }

@@ -17,6 +17,7 @@ pub type PluginResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, PartialOrd, Eq, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Params {
+    Logo,
     InstanceId,
     ProjectData,
     EmbeddedLensProfile,
@@ -45,6 +46,9 @@ pub enum Params {
     KeyframesGroup, KeyframesGroupEnd,
     UseGyroflowsKeyframes,
     RecalculateKeyframes,
+    OutputSizeGroup, OutputSizeGroupEnd,
+    OutputWidth,
+    OutputHeight,
     ToggleOverview,
     DontDrawOutside,
     IncludeProjectData,
@@ -260,6 +264,10 @@ impl GyroflowPluginBase {
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
                 ParameterType::Button   { id: "RecalculateKeyframes",  label: "Recalculate keyframes",    hint: "Recalculate keyframes after adjusting the splines (in Fusion mode)" },
             ] },
+            ParameterType::Group { id: "OutputSizeGroup", label: "Output size", parameters: vec![
+                ParameterType::Slider   { id: "OutputWidth",    label: "Width",  hint: "Width",  min: 1.0, max: 16384.0, default: 3840.0 },
+                ParameterType::Slider   { id: "OutputHeight",   label: "Height", hint: "Height", min: 1.0, max: 16384.0, default: 2160.0 },
+            ] },
             ParameterType::Checkbox { id: "ToggleOverview",     label: "Stabilization overview",         hint: "Zooms out the view to see the stabilization results. Disable this before rendering.", default: false },
             ParameterType::Checkbox { id: "DontDrawOutside",    label: "Don't draw outside source clip", hint: "When clip and timeline aspect ratio don't match, draw the final image inside the source clip, instead of drawing outside it.", default: false },
             ParameterType::Checkbox { id: "IncludeProjectData", label: "Embed .gyroflow data in plugin", hint: "If you intend to share the project to someone else, the plugin can embed the Gyroflow project data including gyro data inside the video editor project. This way you don't have to share .gyroflow project files. Enabling this option will make the project bigger.", default: false },
@@ -309,8 +317,7 @@ pub struct KeyframableParams {
     pub cached_keyframes: KeyframeManager
 }
 
-pub struct GyroflowPluginBaseInstance<P: GyroflowPluginParams> {
-    pub parameters: P,
+pub struct GyroflowPluginBaseInstance {
     pub keyframable_params: Arc<RwLock<KeyframableParams>>,
 
     pub managers: LruCache<String, Arc<StabilizationManager>>,
@@ -321,6 +328,7 @@ pub struct GyroflowPluginBaseInstance<P: GyroflowPluginParams> {
     pub original_output_size: (usize, usize),
     pub num_frames: usize,
     pub fps: f64,
+    pub has_motion: bool,
     pub ever_changed: bool,
     pub cache_keyframes_every_frame: bool,
     pub framebuffer_inverted: bool,
@@ -328,33 +336,33 @@ pub struct GyroflowPluginBaseInstance<P: GyroflowPluginParams> {
     pub opencl_disabled: bool,
 }
 
-impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
-    pub fn update_loaded_state(&mut self, loaded: bool) {
-        let _ = self.parameters.set_enabled(Params::Fov, loaded);
-        let _ = self.parameters.set_enabled(Params::Smoothness, loaded);
-        let _ = self.parameters.set_enabled(Params::LensCorrectionStrength, loaded);
-        let _ = self.parameters.set_enabled(Params::HorizonLockAmount, loaded);
-        let _ = self.parameters.set_enabled(Params::HorizonLockRoll, loaded);
-        let _ = self.parameters.set_enabled(Params::PositionX, loaded);
-        let _ = self.parameters.set_enabled(Params::PositionY, loaded);
-        let _ = self.parameters.set_enabled(Params::Rotation, loaded);
-        let _ = self.parameters.set_enabled(Params::VideoSpeed, loaded);
-        let _ = self.parameters.set_enabled(Params::DisableStretch, loaded);
-        let _ = self.parameters.set_enabled(Params::ToggleOverview, loaded);
-        let _ = self.parameters.set_enabled(Params::ReloadProject, loaded);
-        let _ = self.parameters.set_label(Params::Status, if loaded { "OK" } else { "Project not loaded" });
-        let _ = self.parameters.set_bool(Params::Status, loaded);
-        let _ = self.parameters.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
+impl GyroflowPluginBaseInstance {
+    pub fn update_loaded_state(&mut self, params: &mut dyn GyroflowPluginParams, loaded: bool) {
+        let _ = params.set_enabled(Params::Fov, loaded);
+        let _ = params.set_enabled(Params::Smoothness, loaded);
+        let _ = params.set_enabled(Params::LensCorrectionStrength, loaded);
+        let _ = params.set_enabled(Params::HorizonLockAmount, loaded);
+        let _ = params.set_enabled(Params::HorizonLockRoll, loaded);
+        let _ = params.set_enabled(Params::PositionX, loaded);
+        let _ = params.set_enabled(Params::PositionY, loaded);
+        let _ = params.set_enabled(Params::Rotation, loaded);
+        let _ = params.set_enabled(Params::VideoSpeed, loaded);
+        let _ = params.set_enabled(Params::DisableStretch, loaded);
+        let _ = params.set_enabled(Params::ToggleOverview, loaded);
+        let _ = params.set_enabled(Params::ReloadProject, loaded);
+        let _ = params.set_bool(Params::Status, loaded);
+        let _ = params.set_label(Params::Status, if loaded { "OK" } else { "Project not loaded" });
+        let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
     }
 
-    pub fn initialize_instance_id(&mut self) {
-        if self.parameters.get_string(Params::InstanceId).unwrap_or_default().is_empty() {
+    pub fn initialize_instance_id(&mut self, instance_id: &mut String) {
+        if instance_id.is_empty() {
             self.ever_changed = true;
-            let _ = self.parameters.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)));
+            *instance_id = format!("{}", fastrand::u64(..));
         }
     }
 
-    fn set_keyframe_provider(&self, stab: &StabilizationManager) {
+    pub fn set_keyframe_provider(&self, stab: &StabilizationManager) {
         let kparams = self.keyframable_params.clone();
         stab.keyframes.write().set_custom_provider(move |kf, typ, timestamp_ms| -> Option<f64> {
             let params = kparams.read();
@@ -362,24 +370,24 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
             params.cached_keyframes.value_at_video_timestamp(typ, timestamp_ms)
         });
     }
-    pub fn cache_keyframes(&mut self, use_gyroflows_keyframes: bool, num_frames: usize, fps: f64) {
+    pub fn cache_keyframes(&mut self, params: &dyn GyroflowPluginParams, use_gyroflows_keyframes: bool, num_frames: usize, fps: f64) {
         let mut mgr = KeyframeManager::new();
         macro_rules! cache_key {
             ($typ:expr, $param:expr, $scale:expr) => {
-                if self.parameters.is_keyframed($param) {
+                if params.is_keyframed($param) {
                     log::info!("param: {:?} is keyframed, cache_keyframes_every_frame: {}", $param, self.cache_keyframes_every_frame);
                     if self.cache_keyframes_every_frame { // Query every frame
                         for t in 0..num_frames {
                             let time = t as f64;
                             let timestamp_us = ((time / fps * 1_000_000.0)).round() as i64;
 
-                            if let Ok(v) = self.parameters.get_f64_at_time($param, TimeType::FrameOrMicrosecond((Some(time), Some(timestamp_us)))) {
+                            if let Ok(v) = params.get_f64_at_time($param, TimeType::FrameOrMicrosecond((Some(time), Some(timestamp_us)))) {
                                 mgr.set(&$typ, timestamp_us, v / $scale);
                             }
                         }
                     } else {
                         // Cache only the keyframes at their timestamps
-                        for (t, v) in self.parameters.get_keyframes($param) {
+                        for (t, v) in params.get_keyframes($param) {
                             let timestamp_us = match t {
                                 TimeType::FrameOrMicrosecond((Some(f), None)) |
                                 TimeType::Frame(f) => ((f / fps * 1_000_000.0)).round() as i64,
@@ -394,7 +402,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                     }
                 } else {
                     log::info!("param: {:?} NOT keyframed", $param);
-                    if let Ok(v) = self.parameters.get_f64($param) {
+                    if let Ok(v) = params.get_f64($param) {
                         mgr.set(&$typ, 0, v / $scale);
                     }
                 }
@@ -415,13 +423,13 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
         kparams.cached_keyframes = mgr;
     }
 
-    pub fn stab_manager(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, bit_depth: usize, in_size: (usize, usize), out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
-        let disable_stretch = self.parameters.get_bool(Params::DisableStretch)?;
+    pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, bit_depth: usize, in_size: (usize, usize), out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
+        let disable_stretch = params.get_bool(Params::DisableStretch)?;
 
-        let instance_id = self.parameters.get_string(Params::InstanceId)?;
-        let path = self.parameters.get_string(Params::ProjectPath)?;
+        let instance_id = params.get_string(Params::InstanceId)?;
+        let path = params.get_string(Params::ProjectPath)?;
         if path.is_empty() {
-            self.update_loaded_state(false);
+            self.update_loaded_state(params, false);
             return Err("Path is empty".into());
         }
         let key = format!("{path}{bit_depth:?}{in_size:?}{out_size:?}{disable_stretch}{instance_id}");
@@ -466,7 +474,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
 
                 match stab.load_video_file(&filesystem::path_to_url(&path), None) {
                     Ok(md) => {
-                        if let Ok(d) = self.parameters.get_string(Params::EmbeddedLensProfile) {
+                        if let Ok(d) = params.get_string(Params::EmbeddedLensProfile) {
                             if !d.is_empty() {
                                 if let Err(e) = stab.load_lens_profile(&d) {
                                     rfd::MessageDialog::new()
@@ -475,7 +483,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                                 }
                             }
                         }
-                        if let Ok(d) = self.parameters.get_string(Params::EmbeddedPreset) {
+                        if let Ok(d) = params.get_string(Params::EmbeddedPreset) {
                             if !d.is_empty() {
                                 let mut is_preset = false;
                                 if let Err(e) = stab.import_gyroflow_data(d.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset) {
@@ -485,35 +493,35 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                                 }
                             }
                         }
-                        if self.parameters.get_bool(Params::IncludeProjectData)? {
+                        if params.get_bool(Params::IncludeProjectData)? {
                             if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                                self.parameters.set_string(Params::ProjectData, &data)?;
+                                params.set_string(Params::ProjectData, &data)?;
                             }
                         }
                         if md.rotation != 0 {
                             let r = ((360 - md.rotation) % 360) as f64;
-                            self.parameters.set_f64(Params::InputRotation, r)?;
+                            params.set_f64(Params::InputRotation, r)?;
                             stab.params.write().video_rotation = r;
                         }
                         if !stab.gyro.read().file_metadata.has_accurate_timestamps && open_gyroflow_if_no_data {
-                            GyroflowPluginBase::open_gyroflow(self.parameters.get_string(Params::ProjectPath).ok().as_deref());
+                            GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
                         }
                     },
                     Err(e) => {
-                        let embedded_data = self.parameters.get_string(Params::ProjectData)?;
+                        let embedded_data = params.get_string(Params::ProjectData)?;
                         if !embedded_data.is_empty() {
                             let mut is_preset = false;
                             stab.import_gyroflow_data(embedded_data.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset).map_err(|e| {
-                                self.update_loaded_state(false);
+                                self.update_loaded_state(params, false);
                                 format!("load_gyro_data error: {e}")
                             })?;
                         } else {
                             log::error!("An error occured: {e:?}");
-                            self.update_loaded_state(false);
-                            self.parameters.set_label(Params::Status, "Failed to load file info!")?;
-                            self.parameters.set_hint(Params::Status, &format!("Error loading {path}: {e:?}."))?;
+                            self.update_loaded_state(params, false);
+                            params.set_label(Params::Status, "Failed to load file info!")?;
+                            params.set_hint(Params::Status, &format!("Error loading {path}: {e:?}."))?;
                             if open_gyroflow_if_no_data {
-                                GyroflowPluginBase::open_gyroflow(self.parameters.get_string(Params::ProjectPath).ok().as_deref());
+                                GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
                             }
                             return Err(e.into());
                         }
@@ -521,13 +529,13 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                 }
             } else {
                 let project_data = {
-                    if self.parameters.get_bool(Params::IncludeProjectData)? && !self.parameters.get_string(Params::ProjectData)?.is_empty() {
-                        self.parameters.get_string(Params::ProjectData)?
+                    if params.get_bool(Params::IncludeProjectData)? && !params.get_string(Params::ProjectData)?.is_empty() {
+                        params.get_string(Params::ProjectData)?
                     } else if let Ok(data) = std::fs::read_to_string(&path) {
-                        if self.parameters.get_bool(Params::IncludeProjectData)? {
-                            self.parameters.set_string(Params::ProjectData, &data)?;
+                        if params.get_bool(Params::IncludeProjectData)? {
+                            params.set_string(Params::ProjectData, &data)?;
                         } else {
-                            self.parameters.set_string(Params::ProjectData, "")?;
+                            params.set_string(Params::ProjectData, "")?;
                         }
                         data
                     } else {
@@ -536,47 +544,47 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                 };
                 let mut is_preset = false;
                 stab.import_gyroflow_data(project_data.as_bytes(), true, Some(&filesystem::path_to_url(&path)), |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset).map_err(|e| {
-                    self.update_loaded_state(false);
+                    self.update_loaded_state(params, false);
                     format!("load_gyro_data error: {e}")
                 })?;
             }
 
             let loaded = {
                 stab.params.write().calculate_ramped_timestamps(&stab.keyframes.read(), false, true);
-                let params = stab.params.read();
-                self.original_video_size = params.video_size;
-                self.original_output_size = params.video_output_size;
-                self.num_frames = params.frame_count;
-                self.fps = params.fps;
-                let loaded = params.duration_ms > 0.0;
+                let gf_params = stab.params.read();
+                self.original_video_size = gf_params.video_size;
+                self.original_output_size = gf_params.video_output_size;
+                self.num_frames = gf_params.frame_count;
+                self.fps = gf_params.fps;
+                let loaded = gf_params.duration_ms > 0.0;
                 if loaded && self.reload_values_from_project {
                     self.reload_values_from_project = false;
                     let smooth = stab.smoothing.read();
                     let smoothness = smooth.current().get_parameter("smoothness");
 
-                    self.parameters.set_f64(Params::Fov,                    params.fov)?;
-                    self.parameters.set_f64(Params::Smoothness,             smoothness)?;
-                    self.parameters.set_f64(Params::LensCorrectionStrength, (params.lens_correction_amount * 100.0).min(100.0))?;
-                    self.parameters.set_f64(Params::HorizonLockAmount,      if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonlockpercent } else { 0.0 })?;
-                    self.parameters.set_f64(Params::HorizonLockRoll,        if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonroll } else { 0.0 })?;
-                    self.parameters.set_f64(Params::VideoSpeed,             params.video_speed * 100.0)?;
-                    self.parameters.set_f64(Params::PositionX,              params.adaptive_zoom_center_offset.0 * 100.0)?;
-                    self.parameters.set_f64(Params::PositionY,              params.adaptive_zoom_center_offset.1 * 100.0)?;
-                    self.parameters.set_f64(Params::Rotation,               params.video_rotation)?;
+                    params.set_f64(Params::Fov,                    gf_params.fov)?;
+                    params.set_f64(Params::Smoothness,             smoothness)?;
+                    params.set_f64(Params::LensCorrectionStrength, (gf_params.lens_correction_amount * 100.0).min(100.0))?;
+                    params.set_f64(Params::HorizonLockAmount,      if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonlockpercent } else { 0.0 })?;
+                    params.set_f64(Params::HorizonLockRoll,        if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonroll } else { 0.0 })?;
+                    params.set_f64(Params::VideoSpeed,             gf_params.video_speed * 100.0)?;
+                    params.set_f64(Params::PositionX,              gf_params.adaptive_zoom_center_offset.0 * 100.0)?;
+                    params.set_f64(Params::PositionY,              gf_params.adaptive_zoom_center_offset.1 * 100.0)?;
+                    params.set_f64(Params::Rotation,               gf_params.video_rotation)?;
 
                     let keyframes = stab.keyframes.read();
                     let all_keys = keyframes.get_all_keys();
-                    self.parameters.set_bool(Params::UseGyroflowsKeyframes, !all_keys.is_empty())?;
+                    params.set_bool(Params::UseGyroflowsKeyframes, !all_keys.is_empty())?;
                     for k in all_keys {
                         if let Some(keys) = keyframes.get_keyframes(k) {
                             if !keys.is_empty() {
                                 macro_rules! set_keys {
                                     ($name:expr, $scale:expr) => {
-                                        self.parameters.clear_keyframes($name)?;
+                                        params.clear_keyframes($name)?;
                                         for (ts, v) in keys {
-                                            let ts = if k == &KeyframeType::VideoSpeed { params.get_source_timestamp_at_ramped_timestamp(*ts) } else { *ts };
-                                            let time = (((ts as f64 / 1000.0) * params.fps) / 1000.0).round();
-                                            self.parameters.set_f64_at_time($name, TimeType::Frame(time), v.value * $scale)?;
+                                            let ts = if k == &KeyframeType::VideoSpeed { gf_params.get_source_timestamp_at_ramped_timestamp(*ts) } else { *ts };
+                                            let time = (((ts as f64 / 1000.0) * gf_params.fps) / 1000.0).round();
+                                            params.set_f64_at_time($name, TimeType::Frame(time), v.value * $scale)?;
                                         }
                                     };
                                 }
@@ -596,18 +604,19 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                         }
                     }
                 }
-                let use_gyroflows_keyframes = self.parameters.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
-                self.cache_keyframes(use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
+                let use_gyroflows_keyframes = params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
+                self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
+                self.has_motion = stab.gyro.read().has_motion();
                 loaded
             };
 
-            self.update_loaded_state(loaded);
+            self.update_loaded_state(params, loaded);
 
             if disable_stretch {
                 stab.disable_lens_stretch();
             }
 
-            stab.set_fov_overview(self.parameters.get_bool(Params::ToggleOverview)?);
+            stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);
 
             let video_size = {
                 let mut params = stab.params.write();
@@ -631,7 +640,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
 
             stab.invalidate_smoothing();
             stab.recompute_blocking();
-            let inverse = !(self.parameters.get_bool(Params::UseGyroflowsKeyframes)? && stab.keyframes.read().is_keyframed_internally(&KeyframeType::VideoSpeed));
+            let inverse = !(params.get_bool(Params::UseGyroflowsKeyframes)? && stab.keyframes.read().is_keyframed_internally(&KeyframeType::VideoSpeed));
             stab.params.write().calculate_ramped_timestamps(&stab.keyframes.read(), inverse, inverse);
 
             let stab = Arc::new(stab);
@@ -668,30 +677,30 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
         }
     }
 
-    pub fn set_status(&mut self, status: &str, hint: &str, ok: bool) {
-        let _ = self.parameters.set_label(Params::Status, status);
-        let _ = self.parameters.set_hint(Params::Status, hint);
-        if self.parameters.get_bool(Params::Status).unwrap_or_default() != ok {
-            let _ = self.parameters.set_bool(Params::Status, ok);
+    pub fn set_status(&mut self, params: &mut dyn GyroflowPluginParams, status: &str, hint: &str, ok: bool) {
+        let _ = params.set_label(Params::Status, status);
+        let _ = params.set_hint(Params::Status, hint);
+        if params.get_bool(Params::Status).unwrap_or_default() != ok {
+            let _ = params.set_bool(Params::Status, ok);
             if ok {
-                self.update_loaded_state(ok);
+                self.update_loaded_state(params, ok);
             }
         }
     }
 
-    pub fn param_changed(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, param: Params, user_edited: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn param_changed(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, param: Params, user_edited: bool) -> Result<(), Box<dyn std::error::Error>> {
         if param == Params::Browse {
             let mut d = rfd::FileDialog::new()
                 .add_filter("Gyroflow project files", &["gyroflow"])
                 .add_filter("Video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv"]);
-            let current_path = self.parameters.get_string(Params::ProjectPath)?;
+            let current_path = params.get_string(Params::ProjectPath)?;
             if !current_path.is_empty() {
                 if let Some(path) = std::path::Path::new(&current_path).parent() {
                     d = d.set_directory(path);
                 }
             }
             if let Some(d) = d.pick_file() {
-                self.parameters.set_string(Params::ProjectPath, &d.display().to_string())?;
+                params.set_string(Params::ProjectPath, &d.display().to_string())?;
             }
         }
         if param == Params::LoadLens {
@@ -720,9 +729,9 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                 if !d.is_empty() {
                     if let Ok(contents) = std::fs::read_to_string(&d) {
                         if d.ends_with(".json") {
-                            self.parameters.set_string(Params::EmbeddedLensProfile, &contents)?;
+                            params.set_string(Params::EmbeddedLensProfile, &contents)?;
                         } else {
-                            self.parameters.set_string(Params::EmbeddedPreset, &contents)?;
+                            params.set_string(Params::EmbeddedPreset, &contents)?;
                         }
                     }
                     self.clear_stab(&manager_cache);
@@ -730,7 +739,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
             }
         }
         if param == Params::OpenGyroflow {
-            GyroflowPluginBase::open_gyroflow(self.parameters.get_string(Params::ProjectPath).ok().as_deref());
+            GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
         }
         if param == Params::OpenRecentProject {
             let last_project = /*if cfg!(target_os = "macos") {
@@ -742,7 +751,7 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
             };
             if let Some(v) = last_project {
                 if !v.is_empty() {
-                    self.parameters.set_string(Params::ProjectPath, &v)?;
+                    params.set_string(Params::ProjectPath, &v)?;
                 }
             }
         }
@@ -753,31 +762,31 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
             self.clear_stab(&manager_cache);
         }
         if param == Params::IncludeProjectData {
-            let path = self.parameters.get_string(Params::ProjectPath)?;
-            if self.parameters.get_bool(Params::IncludeProjectData).unwrap_or_default() {
+            let path = params.get_string(Params::ProjectPath)?;
+            if params.get_bool(Params::IncludeProjectData).unwrap_or_default() {
                 if path.ends_with(".gyroflow") {
                     if let Ok(data) = std::fs::read_to_string(&path) {
                         if StabilizationManager::project_has_motion_data(data.as_bytes()) {
-                            self.parameters.set_string(Params::ProjectData, &data)?;
+                            params.set_string(Params::ProjectData, &data)?;
                         } else {
                             if let Some((_, stab)) = self.managers.peek_lru() {
                                 if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                                    self.parameters.set_string(Params::ProjectData, &data)?;
+                                    params.set_string(Params::ProjectData, &data)?;
                                 }
                             }
                         }
                     } else {
-                        self.parameters.set_string(Params::ProjectData, "")?;
+                        params.set_string(Params::ProjectData, "")?;
                     }
                 } else {
                     if let Some((_, stab)) = self.managers.peek_lru() {
                         if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                            self.parameters.set_string(Params::ProjectData, &data)?;
+                            params.set_string(Params::ProjectData, &data)?;
                         }
                     }
                 }
             } else {
-                self.parameters.set_string(Params::ProjectData, &"")?;
+                params.set_string(Params::ProjectData, &"")?;
             }
         }
         if user_edited {
@@ -787,14 +796,14 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                 Params::PositionX | Params::PositionY | Params::Rotation | Params::InputRotation | Params::VideoSpeed |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes =>{
 
-                    self.parameters.set_label(Params::Status, "Calculating...")?;
+                    params.set_label(Params::Status, "Calculating...")?;
                     if !self.ever_changed {
                         self.ever_changed = true;
-                        self.parameters.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
+                        params.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
                         self.clear_stab(manager_cache);
                     }
-                    let use_gyroflows_keyframes = self.parameters.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
-                    self.cache_keyframes(use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
+                    let use_gyroflows_keyframes = params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
+                    self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
                     for (_, v) in self.managers.iter_mut() {
                         match param {
                             Params::Smoothness | Params::HorizonLockAmount | Params::HorizonLockRoll | Params::RecalculateKeyframes => { v.invalidate_blocking_smoothing(); v.invalidate_blocking_zooming(); },
@@ -810,13 +819,14 @@ impl<P> GyroflowPluginBaseInstance<P> where P: GyroflowPluginParams {
                             _ => { }
                         }
                     }
+                    params.set_label(Params::Status, "OK")?;
                 },
                 _ => { }
             }
         }
 
         if param == Params::ToggleOverview && user_edited {
-            let on = self.parameters.get_bool(Params::ToggleOverview)?;
+            let on = params.get_bool(Params::ToggleOverview)?;
             for (_, v) in self.managers.iter_mut() {
                 v.set_fov_overview(on);
                 v.invalidate_blocking_undistortion();

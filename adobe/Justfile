@@ -1,6 +1,18 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 TargetDir := env_var_or_default("CARGO_TARGET_DIR", "target")
+#export RUSTFLAGS := "-Zmacro-backtrace"
+
+[windows]
+release:
+    cargo build --release
+    Copy-Item -Force '{{TargetDir}}\release\gyroflow_adobe.dll' '{{TargetDir}}\release\Gyroflow.aex'
+    Start-Process PowerShell -Verb runAs -ArgumentList "-command Copy-Item -Force '{{TargetDir}}\release\gyroflow_adobe.dll' 'C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\Gyroflow.aex'"
+
+[windows]
+build:
+    cargo build
+    Start-Process PowerShell -Verb runAs -ArgumentList "-command Copy-Item -Force '{{TargetDir}}\debug\gyroflow_adobe.dll' 'C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\Gyroflow.aex'"
 
 [windows]
 deploy:

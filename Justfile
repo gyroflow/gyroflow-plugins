@@ -1,7 +1,7 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 ExtDir := justfile_directory() / "ext"
-export AESDK_ROOT := ExtDir / "AfterEffects"
+#export AESDK_ROOT := ExtDir / "AfterEffects"
 
 export DYLD_FALLBACK_LIBRARY_PATH := if os() == "macos" { if path_exists(`xcode-select --print-path` + "/Toolchains/XcodeDefault.xctoolchain/usr/lib/") == "true" { `xcode-select --print-path` + "/Toolchains/XcodeDefault.xctoolchain/usr/lib/" } else { `xcode-select --print-path` + "/usr/lib/" } } else { "" }
 export MACOSX_DEPLOYMENT_TARGET := "10.15"
