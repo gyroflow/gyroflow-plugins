@@ -312,14 +312,19 @@ pub trait GyroflowPluginParams {
     fn set_f64_at_time(&mut self, param: Params, time: TimeType, value: f64) -> PluginResult<()>;
 }
 
+#[derive(Default, Clone)]
 pub struct KeyframableParams {
     pub use_gyroflows_keyframes: bool,
     pub cached_keyframes: KeyframeManager
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct GyroflowPluginBaseInstance {
+    #[serde(skip)]
     pub keyframable_params: Arc<RwLock<KeyframableParams>>,
 
+    #[serde(skip)]
     pub managers: LruCache<String, Arc<StabilizationManager>>,
 
     pub reload_values_from_project: bool,
@@ -334,6 +339,45 @@ pub struct GyroflowPluginBaseInstance {
     pub framebuffer_inverted: bool,
 
     pub opencl_disabled: bool,
+}
+impl Clone for GyroflowPluginBaseInstance {
+    fn clone(&self) -> Self {
+        Self {
+            managers:                       self.managers.clone(),
+            original_output_size:           self.original_output_size,
+            original_video_size:            self.original_video_size,
+            num_frames:                     self.num_frames,
+            fps:                            self.fps,
+            has_motion:                     self.has_motion,
+            reload_values_from_project:     self.reload_values_from_project,
+            ever_changed:                   self.ever_changed,
+            opencl_disabled:                self.opencl_disabled,
+            cache_keyframes_every_frame:    self.cache_keyframes_every_frame,
+            framebuffer_inverted:           self.framebuffer_inverted,
+            keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
+        }
+    }
+}
+impl Default for GyroflowPluginBaseInstance {
+    fn default() -> Self {
+        Self {
+            managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
+            original_output_size:           (0, 0),
+            original_video_size:            (0, 0),
+            num_frames:                     0,
+            fps:                            0.0,
+            has_motion:                     false,
+            reload_values_from_project:     false,
+            ever_changed:                   false,
+            opencl_disabled:                false,
+            cache_keyframes_every_frame:    true,
+            framebuffer_inverted:           false,
+            keyframable_params: Arc::new(RwLock::new(KeyframableParams {
+                use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
+                cached_keyframes:         KeyframeManager::default()
+            })),
+        }
+    }
 }
 
 impl GyroflowPluginBaseInstance {
@@ -688,19 +732,27 @@ impl GyroflowPluginBaseInstance {
         }
     }
 
+    pub fn browse(current_path: &str) -> String {
+        let mut d = rfd::FileDialog::new()
+            .add_filter("Gyroflow project files", &["gyroflow"])
+            .add_filter("Video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv"]);
+        if !current_path.is_empty() {
+            if let Some(path) = std::path::Path::new(current_path).parent() {
+                d = d.set_directory(path);
+            }
+        }
+        if let Some(d) = d.pick_file() {
+            d.display().to_string()
+        } else {
+            String::new()
+        }
+    }
+
     pub fn param_changed(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, param: Params, user_edited: bool) -> Result<(), Box<dyn std::error::Error>> {
         if param == Params::Browse {
-            let mut d = rfd::FileDialog::new()
-                .add_filter("Gyroflow project files", &["gyroflow"])
-                .add_filter("Video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv"]);
-            let current_path = params.get_string(Params::ProjectPath)?;
-            if !current_path.is_empty() {
-                if let Some(path) = std::path::Path::new(&current_path).parent() {
-                    d = d.set_directory(path);
-                }
-            }
-            if let Some(d) = d.pick_file() {
-                params.set_string(Params::ProjectPath, &d.display().to_string())?;
+            let new_path = Self::browse(&params.get_string(Params::ProjectPath)?);
+            if !new_path.is_empty() {
+                params.set_string(Params::ProjectPath, &new_path)?;
             }
         }
         if param == Params::LoadLens {
@@ -794,7 +846,7 @@ impl GyroflowPluginBaseInstance {
                 Params::Fov | Params::Smoothness | Params::LensCorrectionStrength |
                 Params::HorizonLockAmount | Params::HorizonLockRoll |
                 Params::PositionX | Params::PositionY | Params::Rotation | Params::InputRotation | Params::VideoSpeed |
-                Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes =>{
+                Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
                     params.set_label(Params::Status, "Calculating...")?;
                     if !self.ever_changed {

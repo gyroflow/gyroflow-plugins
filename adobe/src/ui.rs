@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::OnceLock;
 
 pub struct PngImage {
     pub width: usize,
@@ -38,14 +39,23 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
         let supplier = drawbot.supplier()?;
         let surface = drawbot.surface()?;
 
+        // Fill the background
+        static BG_COLOR: OnceLock<ae::drawbot::ColorRgba> = OnceLock::new();
+        surface.paint_rect(BG_COLOR.get_or_init(acquire_background_color), &ae::drawbot::RectF32 {
+            left:   current_frame.left     as f32,
+            top:    current_frame.top      as f32,
+            width:  current_frame.width()  as f32,
+            height: current_frame.height() as f32 + 1.0,
+        })?;
+
         // Draw logo
         if event.param_index() == params.index(Params::Logo).unwrap_or_default() {
-            static PNG: std::sync::OnceLock<PngImage> = std::sync::OnceLock::new();
+            static PNG: OnceLock<PngImage> = OnceLock::new();
             let png = PNG.get_or_init(|| PngImage::new(include_bytes!("../logo_white.png")));
 
             if let Ok(img) = supplier.new_image_from_buffer(png.width, png.height, png.line_size, drawbot::PixelLayout::Bgra32Straight, &png.data) {
                 let origin = drawbot::PointF32 {
-                    x: current_frame.left as f32 + (current_frame.width() as f32 - 250.0) / 2.0,
+                    x: current_frame.left as f32 + (current_frame.width() as f32 - png.width as f32) / 2.0,
                     y: current_frame.top as f32,
                 };
                 surface.draw_image(&img, &origin, 1.0)?;
@@ -95,4 +105,19 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
     event.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
 
     Ok(())
+}
+
+pub fn acquire_background_color() -> ae::drawbot::ColorRgba {
+    const MAX_SHORT_COLOR: f32 = 65535.0;
+    const INV_SIXTY_FIVE_K: f32 = 1.0 / MAX_SHORT_COLOR;
+
+    let bg = ae::pf::suites::App::new()
+        .and_then(|x| x.bg_color())
+        .unwrap_or(ae::sys::PF_App_Color { red: 9830, green: 9830, blue: 9830 });
+    ae::drawbot::ColorRgba {
+        red:   bg.red   as f32 * INV_SIXTY_FIVE_K,
+        green: bg.green as f32 * INV_SIXTY_FIVE_K,
+        blue:  bg.blue  as f32 * INV_SIXTY_FIVE_K,
+        alpha: 1.0,
+    }
 }
