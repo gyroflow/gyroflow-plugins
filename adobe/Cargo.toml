@@ -18,7 +18,6 @@ serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
 pretty-hex = "0.4"
 png = "0.17"
-arrayvec = "0.7"
 
 win_dbg_logger = "0.1"
 log-panics = { version = "2.1", features = ["with-backtrace"]}
