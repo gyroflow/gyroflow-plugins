@@ -83,7 +83,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
                 param.set_ui_flags(ae::ParamUIFlags::CONTROL);
                 param.set_ui_width(250);
-                param.set_ui_height(20);
+                param.set_ui_height(15);
                 -1
             }).unwrap();
         }
@@ -100,9 +100,9 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 //f.set_refcon(1 as _);
             }), |param| {
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
-                param.set_ui_flags(ae::ParamUIFlags::CONTROL);
+                param.set_ui_flags(ae::ParamUIFlags::CONTROL | ae::ParamUIFlags::DO_NOT_ERASE_CONTROL);
                 param.set_ui_width(250);
-                param.set_ui_height(20);
+                param.set_ui_height(15);
                 -1
             }).unwrap();
             /*if id == "Status" { return; }
@@ -128,7 +128,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             params.add_with_flags(Params::from_str(id).unwrap(), label, ae::CheckBoxDef::setup(|f| {
                 f.set_default(default);
                 f.set_value(default);
-                f.set_label("ON");
+                f.set_label("");
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Group { id, label, parameters } => {
@@ -136,6 +136,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 for x in parameters {
                     define_param(params, x, Some(id));
                 }
+                Ok(())
             }).unwrap();
         }
     }
