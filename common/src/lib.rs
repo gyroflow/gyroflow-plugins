@@ -547,7 +547,7 @@ impl GyroflowPluginBaseInstance {
                             params.set_f64(Params::InputRotation, r)?;
                             stab.params.write().video_rotation = r;
                         }
-                        if !stab.gyro.read().file_metadata.has_accurate_timestamps && open_gyroflow_if_no_data {
+                        if !stab.gyro.read().file_metadata.read().has_accurate_timestamps && open_gyroflow_if_no_data {
                             GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
                         }
                     },

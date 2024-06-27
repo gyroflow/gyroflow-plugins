@@ -209,7 +209,7 @@ extern "C" fn f0r_update(instance: f0r_instance_t, time: f64, inframe: *const u3
         }
     };
 
-    if let Err(e) = inst.stab.process_pixels::<RGBA8>(timestamp_us, &mut buffers) {
+    if let Err(e) = inst.stab.process_pixels::<RGBA8>(timestamp_us, None, &mut buffers) {
         log::debug!("process_pixels error: {e:?}");
     }
 

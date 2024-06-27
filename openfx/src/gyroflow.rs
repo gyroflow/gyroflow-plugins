@@ -166,7 +166,8 @@ impl Execute for GyroflowPlugin {
                 let org_ratio = params.video_size.0 as f64 / params.video_size.1 as f64;
                 let (has_accurate_timestamps, has_offsets) = {
                     let gyro = stab.gyro.read();
-                    (gyro.file_metadata.has_accurate_timestamps, !gyro.get_offsets().is_empty())
+                    let md = gyro.file_metadata.read();
+                    (md.has_accurate_timestamps, !gyro.get_offsets().is_empty())
                 };
 
                 let frame_number = (params.frame_count - 1) as f64;
@@ -232,12 +233,14 @@ impl Execute for GyroflowPlugin {
                     // log::debug!("out_scale: {:?}", out_scale);
                     let w = (out_size.0 as f64 * out_scale.x as f64).round() as usize;
                     let h = (out_size.1 as f64 * out_scale.y as f64).round() as usize;
-                    out_rect = Some((
-                        0,
-                        out_size.1 - h, // because the coordinates are inverted
-                        w,
-                        h
-                    ));
+                    if out_size.1 > h {
+                        out_rect = Some((
+                            0,
+                            out_size.1 - h, // because the coordinates are inverted
+                            w,
+                            h
+                        ));
+                    }
                 }
 
                 let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).ok().map(|x| x as f32);
@@ -330,10 +333,10 @@ impl Execute for GyroflowPlugin {
 
                     let processed = match output_image.get_pixel_depth()? {
                         BitDepth::None  => { return FAILED; },
-                        BitDepth::Byte  => stab.process_pixels::<RGBA8>  (timestamp_us, &mut buffers),
-                        BitDepth::Short => stab.process_pixels::<RGBA16> (timestamp_us, &mut buffers),
-                        BitDepth::Half  => stab.process_pixels::<RGBAf16>(timestamp_us, &mut buffers),
-                        BitDepth::Float => stab.process_pixels::<RGBAf>  (timestamp_us, &mut buffers)
+                        BitDepth::Byte  => stab.process_pixels::<RGBA8>  (timestamp_us, None, &mut buffers),
+                        BitDepth::Short => stab.process_pixels::<RGBA16> (timestamp_us, None, &mut buffers),
+                        BitDepth::Half  => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
+                        BitDepth::Float => stab.process_pixels::<RGBAf>  (timestamp_us, None, &mut buffers)
                     };
                     match processed {
                         Ok(_) => {

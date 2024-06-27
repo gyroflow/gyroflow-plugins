@@ -188,9 +188,9 @@ impl Instance {
                     log::info!("pixel_format: {pixel_format:?}");
                     let result = match pixel_format {
                         ae::PixelFormat::GpuBgra128 |
-                        ae::PixelFormat::Argb128    => stab.process_pixels::<RGBAf>(timestamp_us, &mut buffers),
-                        ae::PixelFormat::Argb64     => stab.process_pixels::<RGBA16>(timestamp_us, &mut buffers),
-                        ae::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, &mut buffers),
+                        ae::PixelFormat::Argb128    => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
+                        ae::PixelFormat::Argb64     => stab.process_pixels::<RGBA16>(timestamp_us, None, &mut buffers),
+                        ae::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, None, &mut buffers),
                         _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
                     };
                     match result {
@@ -232,9 +232,9 @@ impl Instance {
                 output: BufferDescription { size: dst_size, rect: None,           data: BufferSource::Cpu { buffer: dst_buffer }, rotation: None, texture_copy: false }
             };
             let result = match src.bit_depth() {
-                8  => stab.process_pixels::<RGBA8> (timestamp_us, &mut buffers),
-                16 => stab.process_pixels::<RGBA16>(timestamp_us, &mut buffers),
-                32 => stab.process_pixels::<RGBAf> (timestamp_us, &mut buffers),
+                8  => stab.process_pixels::<RGBA8> (timestamp_us, None, &mut buffers),
+                16 => stab.process_pixels::<RGBA16>(timestamp_us, None, &mut buffers),
+                32 => stab.process_pixels::<RGBAf> (timestamp_us, None, &mut buffers),
                 bd => panic!("Unknown bit depth: {bd}")
             };
             match result {
@@ -726,9 +726,9 @@ impl pr::GpuFilter for PremiereGPU {
                         };
                         log::info!("pixel_format: {pixel_format:?}");
                         let result = match pixel_format {
-                            pr::PixelFormat::GpuBgra4444_32f    => stab.process_pixels::<RGBAf>(timestamp_us, &mut buffers),
-                            pr::PixelFormat::GpuBgra4444_16f    => stab.process_pixels::<RGBA16>(timestamp_us, &mut buffers),
-                            //pr::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, &mut buffers),
+                            pr::PixelFormat::GpuBgra4444_32f    => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
+                            pr::PixelFormat::GpuBgra4444_16f    => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
+                            //pr::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, None, &mut buffers),
                             _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
                         };
                         match result {

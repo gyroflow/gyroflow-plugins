@@ -10,18 +10,18 @@ description = "Gyroflow plugin base"
 log = "0.4"
 itertools = "0.13"
 lru = "0.12"
-gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "07e79b7", features = ["bundle-lens-profiles", "use-opencl"] }
+gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "bbc1e80", features = ["bundle-lens-profiles", "use-opencl"] }
 #gyroflow-core = { path = "../../gyroflow/src/core", default-features = false, features = ["bundle-lens-profiles", "use-opencl"] }
 log-panics = "2.1"
 serde = "1"
 serde_json = "1"
 rfd = { version = "0.14", default-features = false, features = ["xdg-portal", "async-std"] }
 parking_lot = "0.12"
-lazy_static = "1.4.0"
+lazy_static = "1.5.0"
 fastrand = "2.1.0"
 simplelog = "0.12.2"
 win_dbg_logger = "0.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 metal = "0.28.0"
-oslog = "*"
+oslog = "0.2"
