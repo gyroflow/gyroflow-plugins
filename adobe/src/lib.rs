@@ -133,7 +133,7 @@ impl Instance {
 
                     let org_ratio = {
                         let params = stab.params.read();
-                        params.video_size.0 as f64 / params.video_size.1 as f64
+                        params.size.0 as f64 / params.size.1 as f64
                     };
 
                     let src_size = (input_world.width(), input_world.height(), input_world.buffer_stride());
@@ -215,7 +215,7 @@ impl Instance {
 
             let org_ratio = {
                 let params = stab.params.read();
-                params.video_size.0 as f64 / params.video_size.1 as f64
+                params.size.0 as f64 / params.size.1 as f64
             };
 
             let src_size = (src.width() as usize, src.height() as usize, src.buffer_stride());
@@ -331,6 +331,7 @@ impl AdobePluginGlobal for Plugin {
                     out_data.set_out_flag2(ae::OutFlags2::SupportsGpuRenderF32, true);
                 }
 
+                let _ = in_data.effect().set_options_button_name("Open Gyroflow");
             },
             ae::Command::ArbitraryCallback { mut extra } => {
                 if let Err(e) = extra.dispatch::<ArbString, Params>(Params::InstanceId) {
@@ -685,7 +686,7 @@ impl pr::GpuFilter for PremiereGPU {
 
                         let org_ratio = {
                             let params = stab.params.read();
-                            params.video_size.0 as f64 / params.video_size.1 as f64
+                            params.size.0 as f64 / params.size.1 as f64
                         };
 
                         let src_size = (in_size.0 as usize, in_size.1 as usize, in_stride as usize);

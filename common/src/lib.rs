@@ -209,18 +209,31 @@ impl GyroflowPluginBase {
             if let Some(v) = Self::get_gyroflow_location() {
                 if !v.is_empty() {
                     if let Some(project) = project_path {
-                        if !project.is_empty() {
+                        let result = if !project.is_empty() {
                             if cfg!(target_os = "macos") {
-                                let _ = std::process::Command::new("open").args(["-a", &v, "--args", "--open", &project]).spawn();
+                                std::process::Command::new("open").args(["-a", &v, "--args", "--open", &project]).spawn()
+                            } else if cfg!(target_os = "windows") && v.starts_with("shell:") {
+                                let mut cmd = std::process::Command::new("cmd.exe");
+                                #[cfg(target_os = "windows")]
+                                { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
+                                cmd.args(["/c", "start", "", &v, "--open", &project]).spawn()
                             } else {
-                                let _ = std::process::Command::new(v).args(["--open", &project]).spawn();
+                                std::process::Command::new(v).args(["--open", &project]).spawn()
                             }
                         } else {
                             if cfg!(target_os = "macos") {
-                                let _ = std::process::Command::new("open").args(["-a", &v]).spawn();
+                                std::process::Command::new("open").args(["-a", &v]).spawn()
+                            } else if cfg!(target_os = "windows") && v.starts_with("shell:") {
+                                let mut cmd = std::process::Command::new("cmd.exe");
+                                #[cfg(target_os = "windows")]
+                                { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
+                                cmd.args(["/c", "start", "", &v]).spawn()
                             } else {
-                                let _ = std::process::Command::new(v).spawn();
+                                std::process::Command::new(v).spawn()
                             }
+                        };
+                        if let Err(e) = result {
+                            rfd::MessageDialog::new().set_description(format!("Unable to start Gyroflow: {e:?}")).show();
                         }
                     }
                 }
@@ -596,8 +609,8 @@ impl GyroflowPluginBaseInstance {
             let loaded = {
                 stab.params.write().calculate_ramped_timestamps(&stab.keyframes.read(), false, true);
                 let gf_params = stab.params.read();
-                self.original_video_size = gf_params.video_size;
-                self.original_output_size = gf_params.video_output_size;
+                self.original_video_size = gf_params.size;
+                self.original_output_size = gf_params.output_size;
                 self.num_frames = gf_params.frame_count;
                 self.fps = gf_params.fps;
                 let loaded = gf_params.duration_ms > 0.0;
@@ -662,16 +675,12 @@ impl GyroflowPluginBaseInstance {
 
             stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);
 
-            let video_size = {
+            {
                 let mut params = stab.params.write();
                 params.framebuffer_inverted = self.framebuffer_inverted;
-                params.video_size
-            };
+            }
 
-            let org_ratio = video_size.0 as f64 / video_size.1 as f64;
-
-            let src_rect = GyroflowPluginBase::get_center_rect(in_size.0, in_size.1, org_ratio);
-            stab.set_size(src_rect.2, src_rect.3);
+            stab.init_size();
             stab.set_output_size(out_size.0, out_size.1);
 
             {

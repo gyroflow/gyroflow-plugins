@@ -111,7 +111,7 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                         }
                     }
 
-                    let video_size = inst.stab.params.read().video_size;
+                    let video_size = inst.stab.params.read().size;
 
                     let org_ratio = video_size.0 as f64 / video_size.1 as f64;
 
@@ -183,7 +183,7 @@ extern "C" fn f0r_update(instance: f0r_instance_t, time: f64, inframe: *const u3
 
     let org_ratio = {
         let params = inst.stab.params.read();
-        params.video_size.0 as f64 / params.video_size.1 as f64
+        params.size.0 as f64 / params.size.1 as f64
     };
 
     let src_size = (inst.width, inst.height, inst.width * 4);
