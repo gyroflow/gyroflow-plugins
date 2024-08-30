@@ -260,7 +260,7 @@ impl GyroflowPluginBase {
             ParameterType::HiddenString { id: "EmbeddedPreset" },
             ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", opened: true, parameters: vec![
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
-                ParameterType::TextBox { id: "gyrodata",          label: "Project file",             hint: "Project file or video file" },
+                ParameterType::TextBox { id: "ProjectPath",       label: "Project file",             hint: "Project file or video file" },
                 ParameterType::Button  { id: "Browse",            label: "Browse",                   hint: "Browse for the Gyroflow project file" },
                 ParameterType::Button  { id: "LoadLens",          label: "Load preset/lens profile", hint: "Browse for the lens profile or a preset" },
                 ParameterType::Button  { id: "OpenGyroflow",      label: "Open Gyroflow",            hint: "Open project in Gyroflow" },
@@ -280,7 +280,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "AdditionalYaw",          label: "Additional yaw",       hint: "Additional yaw rotation",      min: -180.0, max: 180.0, default: 0.0 },
                 ParameterType::Slider   { id: "Rotation",               label: "Video rotation",       hint: "Video rotation",               min: -360.0, max: 360.0, default: 0.0 },
                 ParameterType::Slider   { id: "InputRotation",          label: "Input rotation",       hint: "Input rotation",               min: -360.0, max: 360.0, default: 0.0 },
-                ParameterType::Slider   { id: "FOV",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
+                ParameterType::Slider   { id: "Fov",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
             ] },
@@ -967,20 +967,12 @@ impl GyroflowPluginBaseInstance {
 impl std::str::FromStr for Params {
     type Err = serde_json::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "gyrodata" => Ok(Self::ProjectPath),
-            "FOV"      => Ok(Self::Fov),
-            _ => serde_json::from_str(&format!("\"{}\"", s))
-        }
+        serde_json::from_str(&format!("\"{}\"", s))
     }
 }
 impl ToString for Params {
     fn to_string(&self) -> String {
-        match self {
-            Self::ProjectPath => "gyrodata".to_string(),
-            Self::Fov         => "FOV".to_string(),
-            _ => format!("{:?}", self)
-        }
+        format!("{:?}", self)
     }
 }
 
