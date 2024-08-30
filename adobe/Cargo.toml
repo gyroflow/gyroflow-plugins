@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 gyroflow-plugin-base = { path = "../common" }
 after-effects = { git = "https://github.com/AdrianEddy/after-effects.git" }
 premiere = { git = "https://github.com/AdrianEddy/after-effects.git" }
-#after-effects = { path = "../../after-effects" }
+#after-effects = { path = "../../after-effects/after-effects" }
 #premiere = { path = "../../after-effects/premiere" }
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }

@@ -38,6 +38,8 @@ pub struct StoredParams {
     pub project_path: String,
     pub instance_id: String,
     pub status: String,
+
+    pub params_copy_for_pr: PremiereParamHelper
 }
 impl Default for StoredParams {
     fn default() -> Self {
@@ -48,6 +50,8 @@ impl Default for StoredParams {
             project_path: String::new(),
             instance_id: format!("{}", fastrand::u64(..)),
             status: "Project not loaded".to_owned(),
+
+            params_copy_for_pr: Default::default()
         }
     }
 }
@@ -68,6 +72,7 @@ impl CrossThreadInstance {
             managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
             original_output_size:           (0, 0),
             original_video_size:            (0, 0),
+            timeline_size:                  (0, 0),
             num_frames:                     0,
             fps:                            0.0,
             has_motion:                     false,
@@ -99,13 +104,10 @@ impl Default for Instance {
 }
 
 impl Instance {
-    fn stab_manager<'a, 'b>(&mut self, params: &'a mut ParamHandler<'a, 'b>, global: &mut Plugin, bit_depth: usize, input_rect: ae::Rect, output_rect: ae::Rect) -> Option<Arc<StabilizationManager>> {
-        let in_size  = ( input_rect.width() as usize,  input_rect.height() as usize);
-        let out_size = (output_rect.width() as usize, output_rect.height() as usize);
+    fn stab_manager<'a, 'b>(&mut self, params: &'a mut ParamHandler<'a, 'b>, global: &mut Plugin, output_rect: ae::Rect) -> Option<Arc<StabilizationManager>> {
+         let out_size = (output_rect.width() as usize, output_rect.height() as usize);
 
-        log::info!("in_size: {in_size:?} -> out_size: {out_size:?}, bit_depth: {bit_depth}");
-
-        self.gyroflow.as_mut().unwrap().stab_manager(params, &global.gyroflow.manager_cache, bit_depth, in_size, out_size, false).ok()
+        self.gyroflow.as_mut().unwrap().stab_manager(params, &global.gyroflow.manager_cache, out_size, false).ok()
     }
 
     fn smart_render(plugin: &PluginState, extra: SmartRenderExtra, is_gpu: bool) -> Result<(), ae::Error> {
@@ -249,22 +251,6 @@ impl Instance {
     }
 }
 
-/*impl Plugin {
-    fn set_global_ptr(&self, in_data: &ae::InData)  {
-        if let Ok(utility) = ae::suites::Utility::new() {
-            if let Ok(inst_id) = utility.filter_instance_id(in_data.effect_ref()) {
-                if let Ok(opaque) = pr::suites::OpaqueEffectData::new() {
-                    let current = opaque.acquire_opaque_effect_data(inst_id).unwrap_or(std::ptr::null_mut());
-                    if current.is_null() {
-                        let mut data_ptr = self as *const _ as *mut _;
-                        let _ = opaque.register_opaque_effect_data(inst_id, &mut data_ptr);
-                    }
-                }
-            }
-        }
-    }
-}*/
-
 impl AdobePluginGlobal for Plugin {
     fn can_load(_host_name: &str, _host_version: &str) -> bool {
         true
@@ -307,7 +293,7 @@ impl AdobePluginGlobal for Plugin {
                 out_data.set_return_msg("Gyroflow, v0.1\nCopyright 2024 AdrianEddy\rGyroflow plugin.");
             }
             ae::Command::GlobalSetup => {
-                self.gyroflow.initialize_gpu_context();
+                gyroflow_core::gpu::initialize_contexts();
 
                 if in_data.is_premiere() {
                     unsafe {
@@ -370,9 +356,9 @@ impl AdobePluginGlobal for Plugin {
 impl CrossThreadInstance {
     fn user_changed_param(&mut self, plugin: &mut PluginState, param: Params) -> Result<(), ae::Error> {
         let _self = self.get().unwrap();
-        let mut _self = _self.write();
 
         if param == Params::LoadCurrent {
+            let _self = _self.read();
             let footage_path = _self.stored.read().media_file_path.clone();
             if !footage_path.is_empty() {
                 let project_path = GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned());
@@ -383,22 +369,51 @@ impl CrossThreadInstance {
             return Ok(());
         }
 
-        let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
-        if let Err(e) = _self.gyroflow.as_mut().unwrap().param_changed(&mut params, &plugin.global.gyroflow.manager_cache, param, true) {
-            log::error!("param_changed error: {e:?}");
+        match param {
+            Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
+            Params::HorizonLockAmount | Params::HorizonLockRoll |
+            Params::AdditionalPitch | Params::AdditionalYaw | Params::Rotation | Params::InputRotation | Params::VideoSpeed |
+            Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
+                let _self = _self.read();
+                let ever_changed = _self.gyroflow.as_ref().map(|x| x.ever_changed).unwrap_or_default();
+                if !ever_changed {
+                    log::warn!("Instance ID changed, creating new cross thread instance!");
+                    log::info!("Instance ID changed, creating new cross thread instance!");
+                    let new = Self::default();
+                    let new_inst = new.get().unwrap();
+                    let mut new_inst = new_inst.write();
+                    *new_inst.stored.write() = _self.stored.read().clone();
+                    new_inst.stored.write().instance_id = format!("{}", fastrand::u64(..));
+                    new_inst.gyroflow = _self.gyroflow.clone();
+                    new_inst.gyroflow.as_mut().unwrap().ever_changed = true;
+
+                    self.id = new.id;
+                }
+            }
+            _ => { }
         }
 
-        let (in_size, out_size) = {
-            let stored = _self.stored.read();
-            (stored.in_size, stored.out_size)
-        };
-        let _ = _self.gyroflow.as_mut().unwrap().stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, 8, in_size, out_size, false);
-        let _ = _self.gyroflow.as_mut().unwrap().stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, 16, in_size, out_size, false);
-        let _ = _self.gyroflow.as_mut().unwrap().stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, 32, in_size, out_size, false);
-        //let _ = _self.stab_manager(&mut params, plugin.global, 8, ae::Rect::empty(), ae::Rect::empty());
+        let mut _self = _self.write();
+        let stored = _self.stored.clone();
+        let stored2 = _self.stored.clone();
+        if let Some(inst) = _self.gyroflow.as_mut() {
+            let mut params = ParamHandler { inner: plugin.params, stored: stored };
+            //let current_instance_id = params.get_string(Params::InstanceId).unwrap_or_default();
+            if let Err(e) = inst.param_changed(&mut params, &plugin.global.gyroflow.manager_cache, param, true) {
+                log::error!("param_changed error: {e:?}");
+            }
 
-        //let has_motion = _self.gyroflow.has_motion;
-        //_self.gyroflow.update_loaded_state(&mut params, has_motion);
+            let pr_params = PremiereParamHelper::from_params(&params);
+
+            stored2.write().params_copy_for_pr = pr_params;
+            /*if current_instance_id != params.get_string(Params::InstanceId).unwrap_or_default() {
+                log::warn!("Instance ID changed, creating new cross thread instance!");
+                self.id = fastrand::u64(..);
+            }*/
+
+            let _ = inst.stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, (0, 0), false);
+
+        }
 
         Ok(())
     }
@@ -407,7 +422,8 @@ impl CrossThreadInstance {
 impl AdobePluginInstance for CrossThreadInstance {
     fn flatten(&self) -> Result<(u16, Vec<u8>), Error> {
         let bytes = bincode::serialize(&self).unwrap();
-        log::info!("flatten, bytes: {}", pretty_hex::pretty_hex(&bytes));
+        log::info!("flatten, len: {}", bytes.len());
+        log::info!("bytes: {}", pretty_hex::pretty_hex(&bytes));
         Ok((1, bytes))
     }
     fn unflatten(version: u16, bytes: &[u8]) -> Result<Self, Error> {
@@ -416,12 +432,14 @@ impl AdobePluginInstance for CrossThreadInstance {
             Ok(inst) => {
                 let mut _self = inst.get().unwrap();
                 let mut _self = _self.write();
-                let gyroflow = {
-                    let mut stored = _self.stored.write();
-                    Self::new_base_instance(&mut stored.instance_id)
-                };
-                log::info!("_self.gyroflow is none: {} | istance_id: {}", _self.gyroflow.is_none(), _self.stored.read().instance_id);
-                _self.gyroflow = Some(gyroflow);
+                if _self.gyroflow.is_none() {
+                    let gyroflow = {
+                        let mut stored = _self.stored.write();
+                        Self::new_base_instance(&mut stored.instance_id)
+                    };
+                    log::info!("_self.gyroflow is none: {} | instance_id: {}", _self.gyroflow.is_none(), _self.stored.read().instance_id);
+                    _self.gyroflow = Some(gyroflow);
+                }
                 Ok(inst)
             },
             Err(_) => {
@@ -464,11 +482,11 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                 //let _self = self.get().unwrap();
                 //let mut _self = _self.write();
-                //if !_self.stored.project_path.is_empty() {
-                //    log::info!("project path2: {}", _self.stored.project_path);
+                //if !_self.stored.read().project_path.is_empty() {
+                //    log::info!("project path2: {}", _self.stored.read().project_path);
                 //    let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
-                //    params.set_string(Params::ProjectPath, &_self.stored.project_path).unwrap();
-                //    _self.stored.project_path.clear();
+                //    params.set_string(Params::ProjectPath, &_self.stored.read().project_path).unwrap();
+                //    _self.stored.write().project_path.clear();
                 //}
 
                 //let mut params = ParamHandler { inner: plugin.params };
@@ -519,7 +537,20 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                     let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
 
-                    if let Some(stab) = _self.stab_manager(&mut params, plugin.global, extra.bit_depth() as usize, result_rect, result_rect) {
+                    let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
+                    log::info!("SmartPreRender sx: {sx}, sy: {sy}: {result_rect:?}, {_max_result_rect:?}");
+
+                    let (nw, nh) = ((params.get_f64(Params::OutputWidth).unwrap() * sx) as i32, (params.get_f64(Params::OutputHeight).unwrap() * sy) as i32);
+                    extra.set_result_rect(ae::Rect {
+                        left:   (result_rect.width() - nw) / 2,
+                        top:    (result_rect.height() - nh) / 2,
+                        right:  (result_rect.width() - nw) / 2 + nw,
+                        bottom: (result_rect.height() - nh) / 2 + nh
+                    });
+                    extra.set_max_result_rect(extra.result_rect());
+                    extra.set_returns_extra_pixels(true);
+
+                    if let Some(stab) = _self.stab_manager(&mut params, plugin.global, result_rect) {
                         log::info!("setting pre-render extra: {result_rect:?}, in: {:?}", in_data.extent_hint());
                         extra.set_pre_render_data::<Arc<StabilizationManager>>(stab);
                     } else {
@@ -533,7 +564,13 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                 let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
 
-                if let Some(stab) = _self.stab_manager(&mut params, plugin.global, out_layer.bit_depth() as usize, in_data.extent_hint(), out_layer.extent_hint()) {
+                // Output buffer resizing may only occur during PF_Cmd_FRAME_SETUP.
+                let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
+                let (nw, nh) = ((params.get_f64(Params::OutputWidth).unwrap() * sx) as u32, (params.get_f64(Params::OutputHeight).unwrap() * sy) as u32);
+                plugin.out_data.set_width(nw as _);
+                plugin.out_data.set_height(nh as _);
+
+                if let Some(stab) = _self.stab_manager(&mut params, plugin.global, out_layer.extent_hint()) {
                     plugin.out_data.set_frame_data::<Arc<StabilizationManager>>(stab);
                 } else {
                     log::error!("frame_setup: no stab manager");
@@ -628,8 +665,6 @@ impl pr::GpuFilter for PremiereGPU {
                             let mut stored = inst.stored.write();
                             stored.project_path = GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned());
                             stored.media_file_path = media_path;
-                            stored.in_size = (in_size.0 as _, in_size.1 as _);
-                            stored.out_size = (out_size.0 as _, out_size.1 as _);
                         }
                         // filter.video_segment_suite.iterate_node_properties(media.1, |k, v| {
                         //     log::info!("Property {k:?} = {v:?}");
@@ -643,33 +678,35 @@ impl pr::GpuFilter for PremiereGPU {
                     let mut path = filter.param_arbitrary_data::<ArbString>(param_index_for_type(Params::ProjectPath, None).unwrap(), render_params.clip_time())?.get().to_owned();
                     let instance_id = inst.stored.read().instance_id.clone();
 
+                    let out_w = filter.param(param_index_for_type(Params::OutputWidth, None).unwrap(), render_params.clip_time())?;
+                    let out_w = if let pr::Param::Float64(x) = out_w { x } else { 1920.0 };
+
+                    let out_h = filter.param(param_index_for_type(Params::OutputHeight, None).unwrap(), render_params.clip_time())?;
+                    let out_h = if let pr::Param::Float64(x) = out_h { x } else { 1080.0 };
+
                     let disable_stretch = if let pr::Param::Bool(x) = disable_stretch { x } else { false };
                     if path.is_empty() {
                         path = inst.stored.read().project_path.clone();
                     }
 
-                    log::info!("instance_id {instance_id}");
-                    log::info!("path {}", path);
-                    let bit_depth =  match pixel_format {
-                        pr::PixelFormat::GpuBgra4444_32f => 32,
-                        pr::PixelFormat::GpuBgra4444_16f => 16,
-                        _ => 8
-                    };
-
-                    let key = format!("{path}{bit_depth:?}{in_size:?}{out_size:?}{disable_stretch}{instance_id}");
-                    log::info!("key {key}");
+                    let key = format!("{path}{disable_stretch}{instance_id}");
+                    log::info!("key {key}, out_size {out_w}x{out_h}");
 
                     log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
 
                     log::info!("{:?}", inst.stored);
 
-                    let cloned = global_inst().gyroflow.manager_cache.lock().get(&key).map(Arc::clone);
-                    if let Some(stab) = cloned {
+                    let mut params = inst.stored.read().params_copy_for_pr.clone();
+                    log::info!("{params:?}");
+
+                    let base_inst = inst.gyroflow.as_mut().unwrap();
+
+                    if let Ok(stab) = base_inst.stab_manager(&mut params, &global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
                         // Cache it in this instance as well
-                        if !inst.gyroflow.as_mut().unwrap().managers.contains(&key) {
-                            inst.gyroflow.as_mut().unwrap().managers.put(key.to_owned(), stab.clone());
+                        if !base_inst.managers.contains(&key) {
+                            base_inst.managers.put(key.to_owned(), stab.clone());
                         }
-                        inst.gyroflow.as_mut().unwrap().set_keyframe_provider(&stab);
+                        base_inst.set_keyframe_provider(&stab);
                         log::info!("key found: {key}");
 
                         let local_time = filter.video_segment_suite.transform_node_time(clip_node, render_params.clip_time())?;
@@ -678,11 +715,6 @@ impl pr::GpuFilter for PremiereGPU {
                         let ticks_per_sec = pr::suites::Time::new().and_then(|x| x.ticks_per_second()).unwrap_or(254016000000) as f64;
 
                         let timestamp_us = ((render_params.clip_time() as f64 / ticks_per_sec) * 1_000_000.0).round() as i64;
-                        log::info!("local_time: {local_time}");
-                        log::info!("ticks_per_sec: {ticks_per_sec}");
-                        log::info!("time_scale: {time_scale}");
-                        log::info!("time_scale2: {time_scale2}");
-                        log::info!("timestamp_us: {timestamp_us}");
 
                         let org_ratio = {
                             let params = stab.params.read();
@@ -692,13 +724,14 @@ impl pr::GpuFilter for PremiereGPU {
                         let src_size = (in_size.0 as usize, in_size.1 as usize, in_stride as usize);
                         let dest_size = (out_size.0 as usize, out_size.1 as usize, out_stride as usize);
                         let src_rect = GyroflowPluginBase::get_center_rect(in_size.0 as usize, in_size.1 as usize, org_ratio);
+                        let out_rect = GyroflowPluginBase::get_center_rect(out_size.0 as usize, out_size.1 as usize, out_w as f64 / out_h.max(1.0) as f64);
 
                         let in_ptr = in_frame_data;
                         let out_ptr = out_frame_data;
 
                         let api = filter.gpu_info.outDeviceFramework;
 
-                        log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {:?}, pixel_format: {pixel_format:?}", api);
+                        log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {:?}, pixel_format: {pixel_format:?} {src_rect:?}->{out_rect:?}", api);
 
                         let buffers = match api {
                             #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -723,13 +756,12 @@ impl pr::GpuFilter for PremiereGPU {
 
                         let mut buffers = Buffers {
                             input:  BufferDescription { size: src_size,  rect: Some(src_rect), data: buffers.0, rotation: None, texture_copy: buffers.2 },
-                            output: BufferDescription { size: dest_size, rect: None,           data: buffers.1, rotation: None, texture_copy: buffers.2 }
+                            output: BufferDescription { size: dest_size, rect: Some(out_rect), data: buffers.1, rotation: None, texture_copy: buffers.2 }
                         };
                         log::info!("pixel_format: {pixel_format:?}");
                         let result = match pixel_format {
                             pr::PixelFormat::GpuBgra4444_32f    => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
                             pr::PixelFormat::GpuBgra4444_16f    => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
-                            //pr::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, None, &mut buffers),
                             _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
                         };
                         match result {

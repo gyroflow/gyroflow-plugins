@@ -33,6 +33,7 @@ impl PngImage {
 
 pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &mut ae::EventExtra, inst: &mut CrossThreadInstance) -> Result<(), ae::Error> {
     if event.effect_area() == ae::EffectArea::Control {
+
         let current_frame = event.current_frame();
 
         let drawbot = event.context_handle().drawing_reference()?;
@@ -86,7 +87,7 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
 
         // Draw project path
         if event.param_index() == params.index(Params::ProjectPath).unwrap_or_default() {
-            let mut path = params.get(Params::ProjectPath)?.as_arbitrary()?.value::<ArbString>()?.get().to_owned();
+            let mut path = params.get(Params::ProjectPath)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
             if path.is_empty() {
                 let _self = inst.get().unwrap();
                 path = _self.read().stored.read().project_path.clone();

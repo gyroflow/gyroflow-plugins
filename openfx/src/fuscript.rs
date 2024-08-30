@@ -9,6 +9,7 @@ Set \"Preferences -> General -> External scripting using\" to \"Local\".\n\n
 It must be the currently displayed video on the timeline.\n
 It is also impossible to query file path on a compound clip.\n\nIn any case, you can just select the video or project file using the \"Browse\" button.";
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CurrentFileInfo {
     pub file_path: String,

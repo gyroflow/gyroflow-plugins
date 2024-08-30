@@ -34,11 +34,14 @@ pub enum Params {
     AdjustGroup, AdjustGroupEnd,
     Fov,
     Smoothness,
+    ZoomLimit,
     LensCorrectionStrength,
     HorizonLockAmount,
     HorizonLockRoll,
-    PositionX,
-    PositionY,
+    // PositionX,
+    // PositionY,
+    AdditionalPitch,
+    AdditionalYaw,
     InputRotation,
     Rotation,
     VideoSpeed,
@@ -49,6 +52,8 @@ pub enum Params {
     OutputSizeGroup, OutputSizeGroupEnd,
     OutputWidth,
     OutputHeight,
+    OutputSizeToTimeline,
+    OutputSizeSwap,
     ToggleOverview,
     DontDrawOutside,
     IncludeProjectData,
@@ -95,6 +100,10 @@ impl GyroflowPluginBase {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             oslog::OsLogger::new("xyz.gyroflow")
                 .category_level_filter("ofx", log::LevelFilter::Error)
+                .category_level_filter("naga", log::LevelFilter::Error)
+                .category_level_filter("wgpu", log::LevelFilter::Error)
+                .category_level_filter("akaze", log::LevelFilter::Error)
+                .category_level_filter("mp4parse", log::LevelFilter::Error)
                 .init()
                 .unwrap();
 
@@ -249,7 +258,7 @@ impl GyroflowPluginBase {
             ParameterType::HiddenString { id: "ProjectData" },
             ParameterType::HiddenString { id: "EmbeddedLensProfile" },
             ParameterType::HiddenString { id: "EmbeddedPreset" },
-            ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", parameters: vec![
+            ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", opened: true, parameters: vec![
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
                 ParameterType::TextBox { id: "gyrodata",          label: "Project file",             hint: "Project file or video file" },
                 ParameterType::Button  { id: "Browse",            label: "Browse",                   hint: "Browse for the Gyroflow project file" },
@@ -259,27 +268,31 @@ impl GyroflowPluginBase {
                 ParameterType::Button  { id: "OpenRecentProject", label: "Last saved project",       hint: "Load most recently saved project in the Gyroflow app" },
                 ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
             ] },
-            ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", parameters: vec![
-                ParameterType::Slider   { id: "FOV",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
-                ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 0.01,   max: 3.0,   default: 0.5 },
+            ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", opened: true, parameters: vec![
+                ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 1.0,    max: 300.0, default: 50.0 },
+                ParameterType::Slider   { id: "ZoomLimit",              label: "Zoom limit",           hint: "Zoom limit",                   min: 51.0,   max: 300.0, default: 130.0 },
                 ParameterType::Slider   { id: "LensCorrectionStrength", label: "Lens correction",      hint: "Lens correction",              min: 0.0,    max: 100.0, default: 100.0 },
                 ParameterType::Slider   { id: "HorizonLockAmount",      label: "Horizon lock",         hint: "Horizon lock amount",          min: 0.0,    max: 100.0, default: 0.0 },
                 ParameterType::Slider   { id: "HorizonLockRoll",        label: "Horizon roll",         hint: "Horizon lock roll adjustment", min: -100.0, max: 100.0, default: 0.0 },
-                ParameterType::Slider   { id: "PositionX",              label: "Position offset X",    hint: "Position offset X",            min: -100.0, max: 100.0, default: 0.0 },
-                ParameterType::Slider   { id: "PositionY",              label: "Position offset Y",    hint: "Position offset Y",            min: -100.0, max: 100.0, default: 0.0 },
-                ParameterType::Slider   { id: "InputRotation",          label: "Input rotation",       hint: "Input rotation",               min: -360.0, max: 360.0, default: 0.0 },
+                //ParameterType::Slider   { id: "PositionX",              label: "Position offset X",    hint: "Position offset X",            min: -100.0, max: 100.0, default: 0.0 },
+                //ParameterType::Slider   { id: "PositionY",              label: "Position offset Y",    hint: "Position offset Y",            min: -100.0, max: 100.0, default: 0.0 },
+                ParameterType::Slider   { id: "AdditionalPitch",        label: "Additional pitch",     hint: "Additional pitch rotation",    min: -180.0, max: 180.0, default: 0.0 },
+                ParameterType::Slider   { id: "AdditionalYaw",          label: "Additional yaw",       hint: "Additional yaw rotation",      min: -180.0, max: 180.0, default: 0.0 },
                 ParameterType::Slider   { id: "Rotation",               label: "Video rotation",       hint: "Video rotation",               min: -360.0, max: 360.0, default: 0.0 },
+                ParameterType::Slider   { id: "InputRotation",          label: "Input rotation",       hint: "Input rotation",               min: -360.0, max: 360.0, default: 0.0 },
+                ParameterType::Slider   { id: "FOV",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
-                // TODO: don't mention "Resolve"
-                ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in Resolve, check this to disable Gyroflow's internal stretching.", default: false },
+                ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
             ] },
-            ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", parameters: vec![
+            ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
                 ParameterType::Button   { id: "RecalculateKeyframes",  label: "Recalculate keyframes",    hint: "Recalculate keyframes after adjusting the splines (in Fusion mode)" },
             ] },
-            ParameterType::Group { id: "OutputSizeGroup", label: "Output size", parameters: vec![
+            ParameterType::Group { id: "OutputSizeGroup", label: "Output size", opened: false, parameters: vec![
                 ParameterType::Slider   { id: "OutputWidth",    label: "Width",  hint: "Width",  min: 1.0, max: 16384.0, default: 3840.0 },
                 ParameterType::Slider   { id: "OutputHeight",   label: "Height", hint: "Height", min: 1.0, max: 16384.0, default: 2160.0 },
+                ParameterType::Button   { id: "OutputSizeToTimeline", label: "Fit to timeline", hint: "Set the output size to the timeline dimensions" },
+                ParameterType::Button   { id: "OutputSizeSwap",  label: "Swap", hint: "Swap width and height" },
             ] },
             ParameterType::Checkbox { id: "ToggleOverview",     label: "Stabilization overview",         hint: "Zooms out the view to see the stabilization results. Disable this before rendering.", default: false },
             ParameterType::Checkbox { id: "DontDrawOutside",    label: "Don't draw outside source clip", hint: "When clip and timeline aspect ratio don't match, draw the final image inside the source clip, instead of drawing outside it.", default: false },
@@ -295,7 +308,7 @@ pub enum ParameterType {
     Slider       { id: &'static str, label: &'static str, hint: &'static str, min: f64, max: f64, default: f64 },
     Checkbox     { id: &'static str, label: &'static str, hint: &'static str, default: bool },
     Button       { id: &'static str, label: &'static str, hint: &'static str },
-    Group        { id: &'static str, label: &'static str, parameters: Vec<ParameterType> }
+    Group        { id: &'static str, label: &'static str, opened: bool, parameters: Vec<ParameterType> }
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +357,7 @@ pub struct GyroflowPluginBaseInstance {
 
     pub original_video_size: (usize, usize),
     pub original_output_size: (usize, usize),
+    pub timeline_size: (usize, usize),
     pub num_frames: usize,
     pub fps: f64,
     pub has_motion: bool,
@@ -359,6 +373,7 @@ impl Clone for GyroflowPluginBaseInstance {
             managers:                       self.managers.clone(),
             original_output_size:           self.original_output_size,
             original_video_size:            self.original_video_size,
+            timeline_size:                  self.timeline_size,
             num_frames:                     self.num_frames,
             fps:                            self.fps,
             has_motion:                     self.has_motion,
@@ -377,6 +392,7 @@ impl Default for GyroflowPluginBaseInstance {
             managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
             original_output_size:           (0, 0),
             original_video_size:            (0, 0),
+            timeline_size:                  (0, 0),
             num_frames:                     0,
             fps:                            0.0,
             has_motion:                     false,
@@ -397,16 +413,23 @@ impl GyroflowPluginBaseInstance {
     pub fn update_loaded_state(&mut self, params: &mut dyn GyroflowPluginParams, loaded: bool) {
         let _ = params.set_enabled(Params::Fov, loaded);
         let _ = params.set_enabled(Params::Smoothness, loaded);
+        let _ = params.set_enabled(Params::ZoomLimit, loaded);
         let _ = params.set_enabled(Params::LensCorrectionStrength, loaded);
         let _ = params.set_enabled(Params::HorizonLockAmount, loaded);
         let _ = params.set_enabled(Params::HorizonLockRoll, loaded);
-        let _ = params.set_enabled(Params::PositionX, loaded);
-        let _ = params.set_enabled(Params::PositionY, loaded);
+        //let _ = params.set_enabled(Params::PositionX, loaded);
+        //let _ = params.set_enabled(Params::PositionY, loaded);
+        let _ = params.set_enabled(Params::AdditionalPitch, loaded);
+        let _ = params.set_enabled(Params::AdditionalYaw, loaded);
         let _ = params.set_enabled(Params::Rotation, loaded);
         let _ = params.set_enabled(Params::VideoSpeed, loaded);
         let _ = params.set_enabled(Params::DisableStretch, loaded);
         let _ = params.set_enabled(Params::ToggleOverview, loaded);
         let _ = params.set_enabled(Params::ReloadProject, loaded);
+        let _ = params.set_enabled(Params::OutputWidth, loaded);
+        let _ = params.set_enabled(Params::OutputHeight, loaded);
+        let _ = params.set_enabled(Params::OutputSizeToTimeline, loaded);
+        let _ = params.set_enabled(Params::OutputSizeSwap, loaded);
         let _ = params.set_bool(Params::Status, loaded);
         let _ = params.set_label(Params::Status, if loaded { "OK" } else { "Project not loaded" });
         let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
@@ -466,21 +489,24 @@ impl GyroflowPluginBaseInstance {
             };
         }
         cache_key!(KeyframeType::Fov,                       Params::Fov,                    1.0);
+        cache_key!(KeyframeType::MaxZoom,                   Params::ZoomLimit,              1.0);
         cache_key!(KeyframeType::SmoothingParamSmoothness,  Params::Smoothness,             1.0);
         cache_key!(KeyframeType::LensCorrectionStrength,    Params::LensCorrectionStrength, 100.0);
         cache_key!(KeyframeType::LockHorizonAmount,         Params::HorizonLockAmount,      1.0);
         cache_key!(KeyframeType::LockHorizonRoll,           Params::HorizonLockRoll,        1.0);
         cache_key!(KeyframeType::VideoSpeed,                Params::VideoSpeed,             100.0);
         cache_key!(KeyframeType::VideoRotation,             Params::Rotation,               1.0);
-        cache_key!(KeyframeType::ZoomingCenterX,            Params::PositionX,              100.0);
-        cache_key!(KeyframeType::ZoomingCenterY,            Params::PositionY,              100.0);
+        //cache_key!(KeyframeType::ZoomingCenterX,            Params::PositionX,              100.0);
+        //cache_key!(KeyframeType::ZoomingCenterY,            Params::PositionY,              100.0);
+        cache_key!(KeyframeType::AdditionalRotationX,       Params::AdditionalYaw,          1.0);
+        cache_key!(KeyframeType::AdditionalRotationY,       Params::AdditionalPitch,        1.0);
 
         let mut kparams = self.keyframable_params.write();
         kparams.use_gyroflows_keyframes = use_gyroflows_keyframes;
         kparams.cached_keyframes = mgr;
     }
 
-    pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, bit_depth: usize, in_size: (usize, usize), out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
+    pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
         let disable_stretch = params.get_bool(Params::DisableStretch)?;
 
         let instance_id = params.get_string(Params::InstanceId)?;
@@ -489,7 +515,12 @@ impl GyroflowPluginBaseInstance {
             self.update_loaded_state(params, false);
             return Err("Path is empty".into());
         }
-        let key = format!("{path}{bit_depth:?}{in_size:?}{out_size:?}{disable_stretch}{instance_id}");
+
+        if self.timeline_size == (0, 0) {
+            self.timeline_size = out_size;
+        }
+
+        let key = format!("{path}{disable_stretch}{instance_id}");
         let cloned = manager_cache.lock().get(&key).map(Arc::clone);
         let stab = if let Some(stab) = cloned {
             // Cache it in this instance as well
@@ -531,6 +562,10 @@ impl GyroflowPluginBaseInstance {
 
                 match stab.load_video_file(&filesystem::path_to_url(&path), None) {
                     Ok(md) => {
+                        if out_size != (0, 0) {
+                            stab.params.write().output_size = out_size; // Default to timeline output size
+                        }
+
                         if let Ok(d) = params.get_string(Params::EmbeddedLensProfile) {
                             if !d.is_empty() {
                                 if let Err(e) = stab.load_lens_profile(&d) {
@@ -618,16 +653,21 @@ impl GyroflowPluginBaseInstance {
                     self.reload_values_from_project = false;
                     let smooth = stab.smoothing.read();
                     let smoothness = smooth.current().get_parameter("smoothness");
-
                     params.set_f64(Params::Fov,                    gf_params.fov)?;
-                    params.set_f64(Params::Smoothness,             smoothness)?;
+                    params.set_f64(Params::Smoothness,             smoothness * 100.0)?;
+                    params.set_f64(Params::ZoomLimit,              gf_params.max_zoom.unwrap_or(0.0))?;
                     params.set_f64(Params::LensCorrectionStrength, (gf_params.lens_correction_amount * 100.0).min(100.0))?;
                     params.set_f64(Params::HorizonLockAmount,      if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonlockpercent } else { 0.0 })?;
                     params.set_f64(Params::HorizonLockRoll,        if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonroll } else { 0.0 })?;
                     params.set_f64(Params::VideoSpeed,             gf_params.video_speed * 100.0)?;
-                    params.set_f64(Params::PositionX,              gf_params.adaptive_zoom_center_offset.0 * 100.0)?;
-                    params.set_f64(Params::PositionY,              gf_params.adaptive_zoom_center_offset.1 * 100.0)?;
+                    //params.set_f64(Params::PositionX,              gf_params.adaptive_zoom_center_offset.0 * 100.0)?;
+                    //params.set_f64(Params::PositionY,              gf_params.adaptive_zoom_center_offset.1 * 100.0)?;
+                    params.set_f64(Params::AdditionalYaw,          gf_params.additional_rotation.0)?;
+                    params.set_f64(Params::AdditionalPitch,        gf_params.additional_rotation.1)?;
                     params.set_f64(Params::Rotation,               gf_params.video_rotation)?;
+
+                    params.set_f64(Params::OutputWidth,            self.original_output_size.0 as f64)?;
+                    params.set_f64(Params::OutputHeight,           self.original_output_size.1 as f64)?;
 
                     let keyframes = stab.keyframes.read();
                     let all_keys = keyframes.get_all_keys();
@@ -647,14 +687,17 @@ impl GyroflowPluginBaseInstance {
                                 }
                                 match k {
                                     KeyframeType::Fov                      => { set_keys!(Params::Fov,                    1.0); },
-                                    KeyframeType::SmoothingParamSmoothness => { set_keys!(Params::Smoothness,             1.0); },
+                                    KeyframeType::SmoothingParamSmoothness => { set_keys!(Params::Smoothness,             100.0); },
+                                    KeyframeType::MaxZoom                  => { set_keys!(Params::ZoomLimit,              1.0); },
                                     KeyframeType::LensCorrectionStrength   => { set_keys!(Params::LensCorrectionStrength, 100.0); },
                                     KeyframeType::LockHorizonAmount        => { set_keys!(Params::HorizonLockAmount,      1.0); },
                                     KeyframeType::LockHorizonRoll          => { set_keys!(Params::HorizonLockRoll,        1.0); },
                                     KeyframeType::VideoSpeed               => { set_keys!(Params::VideoSpeed,             100.0); },
                                     KeyframeType::VideoRotation            => { set_keys!(Params::Rotation,               1.0); },
-                                    KeyframeType::ZoomingCenterX           => { set_keys!(Params::PositionX,              100.0); },
-                                    KeyframeType::ZoomingCenterY           => { set_keys!(Params::PositionY,              100.0); },
+                                    //KeyframeType::ZoomingCenterX           => { set_keys!(Params::PositionX,              100.0); },
+                                    //KeyframeType::ZoomingCenterY           => { set_keys!(Params::PositionY,              100.0); },
+                                    KeyframeType::AdditionalRotationX      => { set_keys!(Params::AdditionalYaw,          1.0); },
+                                    KeyframeType::AdditionalRotationY      => { set_keys!(Params::AdditionalPitch,        1.0); },
                                     _ => { }
                                 }
                             }
@@ -681,7 +724,7 @@ impl GyroflowPluginBaseInstance {
             }
 
             stab.init_size();
-            stab.set_output_size(out_size.0, out_size.1);
+            stab.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
 
             {
                 let mut stab = stab.stabilization.write();
@@ -851,10 +894,27 @@ impl GyroflowPluginBaseInstance {
             }
         }
         if user_edited {
+            if param == Params::OutputWidth || param == Params::OutputHeight || param == Params::OutputSizeSwap || param == Params::OutputSizeToTimeline {
+                if param == Params::OutputSizeSwap {
+                    let (w, h) = (params.get_f64(Params::OutputWidth)?, params.get_f64(Params::OutputHeight)? as _);
+                    params.set_f64(Params::OutputWidth, h)?;
+                    params.set_f64(Params::OutputHeight, w)?;
+                }
+                if param == Params::OutputSizeToTimeline {
+                    params.set_f64(Params::OutputWidth, self.timeline_size.0 as f64)?;
+                    params.set_f64(Params::OutputHeight, self.timeline_size.1 as f64)?;
+                }
+                for (_, v) in self.managers.iter_mut() {
+                    v.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
+                    v.invalidate_blocking_zooming();
+                }
+            }
             match param {
-                Params::Fov | Params::Smoothness | Params::LensCorrectionStrength |
+                Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
                 Params::HorizonLockAmount | Params::HorizonLockRoll |
-                Params::PositionX | Params::PositionY | Params::Rotation | Params::InputRotation | Params::VideoSpeed |
+                //Params::PositionX | Params::PositionY |
+                Params::AdditionalPitch | Params::AdditionalYaw |
+                Params::Rotation | Params::InputRotation | Params::VideoSpeed |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
                     params.set_label(Params::Status, "Calculating...")?;
@@ -867,8 +927,15 @@ impl GyroflowPluginBaseInstance {
                     self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
                     for (_, v) in self.managers.iter_mut() {
                         match param {
-                            Params::Smoothness | Params::HorizonLockAmount | Params::HorizonLockRoll | Params::RecalculateKeyframes => { v.invalidate_blocking_smoothing(); v.invalidate_blocking_zooming(); },
-                            Params::LensCorrectionStrength | Params::PositionX | Params::PositionY | Params::Rotation => { v.invalidate_blocking_zooming(); },
+                            Params::Smoothness | Params::ZoomLimit | Params::HorizonLockAmount | Params::HorizonLockRoll |
+                            Params::AdditionalPitch | Params::AdditionalYaw | Params::RecalculateKeyframes => {
+                                v.invalidate_blocking_smoothing();
+                                v.invalidate_blocking_zooming();
+                            },
+                            //Params::PositionX | Params::PositionY |
+                            Params::LensCorrectionStrength | Params::Rotation => {
+                                v.invalidate_blocking_zooming();
+                            },
                             _ => { }
                         }
                         v.invalidate_blocking_undistortion();
@@ -884,13 +951,12 @@ impl GyroflowPluginBaseInstance {
                 },
                 _ => { }
             }
-        }
-
-        if param == Params::ToggleOverview && user_edited {
-            let on = params.get_bool(Params::ToggleOverview)?;
-            for (_, v) in self.managers.iter_mut() {
-                v.set_fov_overview(on);
-                v.invalidate_blocking_undistortion();
+            if param == Params::ToggleOverview {
+                let on = params.get_bool(Params::ToggleOverview)?;
+                for (_, v) in self.managers.iter_mut() {
+                    v.set_fov_overview(on);
+                    v.invalidate_blocking_undistortion();
+                }
             }
         }
 

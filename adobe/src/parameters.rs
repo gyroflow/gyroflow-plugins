@@ -23,29 +23,12 @@ pub fn de_stored<'de, D: Deserializer<'de>>(d: D) -> Result<Arc<RwLock<StoredPar
     Ok(Arc::new(RwLock::new(strs)))
 }
 
-/*pub fn ser_str<S: Serializer>(x: &arrayvec::ArrayString<512>, s: S) -> Result<S::Ok, S::Error> {
-    Serialize::serialize(x.as_str(), s)
-}
-pub fn de_str<'de, D: Deserializer<'de>>(d: D) -> Result<arrayvec::ArrayString<512>, D::Error> {
-    let strs: String = Deserialize::deserialize(d)?;
-    Ok(arrayvec::ArrayString::<512>::from(&strs).unwrap())
-}*/
-
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
-//pub struct ArbString(pub String);
 #[repr(C)]
 pub struct ArbString {
-    //#[serde(serialize_with="ser_str", deserialize_with="de_str")]
-    //pub arr: arrayvec::ArrayString<512>,
     pub val: String,
 }
 impl ArbString {
-    /*pub fn new(v: &str) -> Self {
-        Self {
-            arr: arrayvec::ArrayString::<256>::from(v).unwrap(),
-            id: ae::fastrand::u32(..),
-        }
-    }*/
     pub fn get(&self) -> &str {
         self.val.as_str()
     }
@@ -67,18 +50,16 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             let p = Params::from_str(id).unwrap();
             params.add_customized(p, id, ae::ArbitraryDef::setup(|f| {
                 f.set_default::<ArbString>(ArbString::default()).unwrap();
-                //f.set_refcon(1 as _);
             }), |param| {
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
                 param.set_ui_flags(ae::ParamUIFlags::NO_ECW_UI);
                 -1
             }).unwrap();
         }
-        ParameterType::TextBox      { id, label, .. } => {
+        ParameterType::TextBox { id, label, .. } => {
             let p = Params::from_str(id).unwrap();
             params.add_customized(p, label, ae::ArbitraryDef::setup(|f| {
                 f.set_default::<ArbString>(ArbString::default()).unwrap();
-                //f.set_refcon(1 as _);
             }), |param| {
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
                 param.set_ui_flags(ae::ParamUIFlags::CONTROL);
@@ -97,7 +78,6 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             let p = Params::from_str(id).unwrap();
             params.add_customized(p, label, ae::ArbitraryDef::setup(|f| {
                 f.set_default::<ArbString>(ArbString::default()).unwrap();
-                //f.set_refcon(1 as _);
             }), |param| {
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
                 param.set_ui_flags(ae::ParamUIFlags::CONTROL | ae::ParamUIFlags::DO_NOT_ERASE_CONTROL);
@@ -125,14 +105,15 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Checkbox { id, label, default, .. } => {
+            if id == "DontDrawOutside" { return; }
             params.add_with_flags(Params::from_str(id).unwrap(), label, ae::CheckBoxDef::setup(|f| {
                 f.set_default(default);
                 f.set_value(default);
                 f.set_label("");
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
-        ParameterType::Group { id, label, parameters } => {
-            params.add_group(Params::from_str(id).unwrap(), Params::from_str(&format!("{id}End")).unwrap(), label, |params| {
+        ParameterType::Group { id, label, parameters, opened } => {
+            params.add_group(Params::from_str(id).unwrap(), Params::from_str(&format!("{id}End")).unwrap(), label, !opened, |params| {
                 for x in parameters {
                     define_param(params, x, Some(id));
                 }
@@ -173,6 +154,10 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> {
         log::info!("set_string: {p:?} = {v}");
+        if p == Params::ProjectPath {
+            // let arbitrary data take over
+            self.stored.write().project_path.clear();
+        }
         if p == Params::Status {
             self.stored.write().status = v.to_owned();
         }
@@ -180,9 +165,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             self.stored.write().instance_id = v.to_owned();
         }
         let mut p = self.inner.get_mut(p)?;
-        p.as_arbitrary_mut()?.value::<ArbString>()?.set(v);
+        if let Ok(mut arb) = p.as_arbitrary_mut()?.value::<ArbString>() {
+            arb.set(v);
+        }
         p.set_value_changed();
-        p.update_param_ui()?;
+        // p.update_param_ui()?;
 
         Ok(())
     }
@@ -194,11 +181,6 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn set_bool(&mut self, p: Params, v: bool) -> PluginResult<()> {
         if p == Params::Status {
-            if v {
-                self.set_string(p, "OK")?;
-            } else {
-                self.set_string(p, "ERR")?;
-            }
             return Ok(());
         }
         self.inner.get_mut(p)?.as_checkbox_mut()?.set_value(v);
@@ -259,6 +241,53 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         self.inner.get_mut(p)?.as_float_slider_mut()?.set_value(v);
         Ok(())
     }
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+pub struct PremiereParamHelper {
+    map: std::collections::BTreeMap<Params, String>
+}
+impl PremiereParamHelper {
+    pub fn from_params(params: &ParamHandler) -> Self {
+        let mut map = std::collections::BTreeMap::new();
+        let strs = [Params::InstanceId, Params::ProjectPath, Params::EmbeddedLensProfile, Params::EmbeddedPreset, Params::ProjectData];
+        let bools = [Params::DisableStretch, Params::IncludeProjectData, Params::UseGyroflowsKeyframes, Params::ToggleOverview];
+
+        for pstr in strs {
+            map.insert(pstr, params.get_string(pstr).unwrap());
+        }
+        for pbool in bools {
+            map.insert(pbool, params.get_bool(pbool).unwrap().to_string());
+        }
+        Self { map }
+    }
+}
+impl GyroflowPluginParams for PremiereParamHelper {
+    fn get_string(&self, p: Params) -> PluginResult<String> {
+        if let Some(x) = self.map.get(&p) {
+            return Ok(x.clone());
+        }
+        Err("Param not found".into())
+    }
+    fn set_string(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
+    fn get_bool(&self, p: Params) -> PluginResult<bool> {
+        if let Some(x) = self.map.get(&p) {
+            return Ok(x == "true");
+        }
+        Err("Param not found".into())
+    }
+    fn set_bool(&mut self, _: Params, _: bool) -> PluginResult<()> { Ok(()) }
+    fn get_f64(&self, _: Params) -> PluginResult<f64> { Ok(0.0) }
+    fn set_f64(&mut self, _: Params, _: f64) -> PluginResult<()> { Ok(()) }
+    fn set_label(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
+    fn set_hint(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
+    fn set_enabled(&mut self, _: Params, _: bool) -> PluginResult<()> { Ok(()) }
+    fn get_f64_at_time(&self, _: Params, _: TimeType) -> PluginResult<f64> { Ok(0.0) }
+    fn get_bool_at_time(&self, _: Params, _: TimeType) -> PluginResult<bool> { Ok(false) }
+    fn clear_keyframes(&mut self, _: Params) -> PluginResult<()> { Ok(()) }
+    fn is_keyframed(&self, _: Params) -> bool { false }
+    fn get_keyframes(&self, _: Params) -> Vec<(TimeType, f64)> { Vec::new() }
+    fn set_f64_at_time(&mut self, _: Params, _: TimeType, _: f64) -> PluginResult<()> { Ok(()) }
 }
 
 /*

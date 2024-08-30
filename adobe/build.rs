@@ -33,6 +33,7 @@ fn main() {
 			OutFlags::PixIndependent |
 			OutFlags::DeepColorAware |
 			OutFlags::SendUpdateParamsUI |
+            OutFlags::IExpandBuffer |
 			OutFlags::NonParamVary
 		),
         Property::AE_Effect_Global_OutFlags_2(

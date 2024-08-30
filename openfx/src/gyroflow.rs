@@ -36,6 +36,8 @@ define_params!(ParamHandler {
         ProjectPath         => project_path:     ParamHandle<String>,
         OpenGyroflow        => open_in_gyroflow: ParamHandle<String>,
         ReloadProject       => reload_project:   ParamHandle<String>,
+        OutputSizeSwap      => output_swap:      ParamHandle<String>,
+        OutputSizeToTimeline=> output_size_fit:  ParamHandle<String>,
     ],
     bools: [
         DisableStretch        => disable_stretch:         ParamHandle<bool>,
@@ -49,13 +51,18 @@ define_params!(ParamHandler {
         InputRotation         => input_rotation:           ParamHandle<Double>,
         Fov                   => fov:                      ParamHandle<Double>,
         Smoothness            => smoothness:               ParamHandle<Double>,
+        ZoomLimit             => zoom_limit:               ParamHandle<Double>,
         LensCorrectionStrength=> lens_correction_strength: ParamHandle<Double>,
         HorizonLockAmount     => horizon_lock_amount:      ParamHandle<Double>,
         HorizonLockRoll       => horizon_lock_roll:        ParamHandle<Double>,
-        PositionX             => positionx:                ParamHandle<Double>,
-        PositionY             => positiony:                ParamHandle<Double>,
+        // PositionX             => positionx:                ParamHandle<Double>,
+        // PositionY             => positiony:                ParamHandle<Double>,
+        AdditionalYaw         => additional_yaw:           ParamHandle<Double>,
+        AdditionalPitch       => additional_pitch:         ParamHandle<Double>,
         Rotation              => rotation:                 ParamHandle<Double>,
         VideoSpeed            => video_speed:              ParamHandle<Double>,
+        OutputWidth           => output_width:             ParamHandle<Double>,
+        OutputHeight          => output_height:            ParamHandle<Double>,
     ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
@@ -98,8 +105,8 @@ struct InstanceData {
 }
 
 impl InstanceData {
-    fn stab_manager(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, bit_depth: usize, output_rect: RectI, loading_pending_video_file: bool) -> Result<Arc<StabilizationManager>> {
-        let source_rect = self.source_clip.get_region_of_definition(0.0)?;
+    fn stab_manager(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, output_rect: RectI, loading_pending_video_file: bool) -> Result<Arc<StabilizationManager>> {
+        /*let source_rect = self.source_clip.get_region_of_definition(0.0)?;
         let mut source_rect = RectI {
             x1: source_rect.x1 as i32,
             x2: source_rect.x2 as i32,
@@ -109,10 +116,10 @@ impl InstanceData {
         if source_rect.x1 != output_rect.x1 || source_rect.x2 != output_rect.x2 || source_rect.y1 != output_rect.y1 || source_rect.y2 != output_rect.y2 {
             source_rect = self.source_clip.get_image(0.0)?.get_bounds()?;
         }
-        let in_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize);
+        let in_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize);*/
         let out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize);
 
-        self.plugin.stab_manager(&mut self.params, manager_cache, bit_depth, in_size, out_size, loading_pending_video_file).map_err(|e| {
+        self.plugin.stab_manager(&mut self.params, manager_cache, out_size, loading_pending_video_file).map_err(|e| {
             log::error!("plugin.stab_manager error: {e:?}");
             Error::UnknownError
         })
@@ -158,7 +165,7 @@ impl Execute for GyroflowPlugin {
 
                 let output_rect: RectI = output_image.get_region_of_definition()?;
 
-                let stab = instance_data.stab_manager(&self.gyroflow_plugin.manager_cache, output_image.get_pixel_depth()?.bits(), output_rect, loading_pending_video_file)?;
+                let stab = instance_data.stab_manager(&self.gyroflow_plugin.manager_cache, output_rect, loading_pending_video_file)?;
 
                 let params = stab.params.read();
                 let fps = params.fps;
@@ -380,13 +387,20 @@ impl Execute for GyroflowPlugin {
                         use_gyroflows_keyframes:  param_set.parameter("UseGyroflowsKeyframes")?,
                         fov:                      param_set.parameter("FOV")?,
                         smoothness:               param_set.parameter("Smoothness")?,
+                        zoom_limit:               param_set.parameter("ZoomLimit")?,
                         lens_correction_strength: param_set.parameter("LensCorrectionStrength")?,
                         horizon_lock_amount:      param_set.parameter("HorizonLockAmount")?,
                         horizon_lock_roll:        param_set.parameter("HorizonLockRoll")?,
                         video_speed:              param_set.parameter("VideoSpeed")?,
-                        positionx:                param_set.parameter("PositionX")?,
-                        positiony:                param_set.parameter("PositionY")?,
+                        //positionx:                param_set.parameter("PositionX")?,
+                        //positiony:                param_set.parameter("PositionY")?,
+                        additional_pitch:         param_set.parameter("AdditionalPitch")?,
+                        additional_yaw:           param_set.parameter("AdditionalYaw")?,
                         rotation:                 param_set.parameter("Rotation")?,
+                        output_width:             param_set.parameter("OutputWidth")?,
+                        output_height:            param_set.parameter("OutputHeight")?,
+                        output_swap:              param_set.parameter("OutputSizeSwap")?,
+                        output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
 
                         fields: Default::default(),
                     },
@@ -394,6 +408,7 @@ impl Execute for GyroflowPlugin {
                         managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
                         original_output_size:           (0, 0),
                         original_video_size:            (0, 0),
+                        timeline_size:                  (0, 0),
                         num_frames:                     0,
                         fps:                            0.0,
                         reload_values_from_project:     false,
@@ -423,7 +438,17 @@ impl Execute for GyroflowPlugin {
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
+                if in_args.get_name()? == "Source" {
+                    log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
+                    return OK;
+                }
+
                 let param: Params = std::str::FromStr::from_str(in_args.get_name()?.as_str()).unwrap();
+                if param == Params::OutputSizeToTimeline {
+                    let rect = instance_data.source_clip.get_region_of_definition(0.0)?;
+                    instance_data.plugin.timeline_size = ((rect.x2 - rect.x1) as usize, (rect.y2 - rect.y1) as usize);
+                }
+
                 instance_data.plugin.param_changed(&mut instance_data.params, &self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
                     log::error!("param_changed error: {e:?}");
                     Error::InvalidAction
@@ -441,6 +466,8 @@ impl Execute for GyroflowPlugin {
                     out_rod.x2 = instance_data.plugin.original_output_size.0 as f64;
                     out_rod.y2 = instance_data.plugin.original_output_size.1 as f64;
                 }
+                if let Ok(ow) = instance_data.params.get_f64(Params::OutputWidth)  { out_rod.x2 = ow; }
+                if let Ok(oh) = instance_data.params.get_f64(Params::OutputHeight) { out_rod.y2 = oh; }
                 out_args.set_effect_region_of_definition(out_rod)?;
 
                 OK
@@ -515,9 +542,10 @@ impl Execute for GyroflowPlugin {
                             let _ = param.set_script_name(id);
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
-                        ParameterType::Group { id, label, parameters } => {
+                        ParameterType::Group { id, label, parameters, opened } => {
                             let mut param = param_set.param_define_group(id)?;
                             param.set_label(label)?;
+                            param.set_group_open(opened)?;
                             if let Some(group) = group { param.set_parent(group)?; }
 
                             for x in parameters {
