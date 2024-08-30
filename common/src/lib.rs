@@ -490,7 +490,7 @@ impl GyroflowPluginBaseInstance {
         }
         cache_key!(KeyframeType::Fov,                       Params::Fov,                    1.0);
         cache_key!(KeyframeType::MaxZoom,                   Params::ZoomLimit,              1.0);
-        cache_key!(KeyframeType::SmoothingParamSmoothness,  Params::Smoothness,             1.0);
+        cache_key!(KeyframeType::SmoothingParamSmoothness,  Params::Smoothness,             100.0);
         cache_key!(KeyframeType::LensCorrectionStrength,    Params::LensCorrectionStrength, 100.0);
         cache_key!(KeyframeType::LockHorizonAmount,         Params::HorizonLockAmount,      1.0);
         cache_key!(KeyframeType::LockHorizonRoll,           Params::HorizonLockRoll,        1.0);
