@@ -86,9 +86,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Gyroflow-Adobe-${{ matrix.targets.type }}
-          path: |
-            target/Gyroflow-Adobe-macos.dmg
-            target/Gyroflow.aex
+          path: target/Gyroflow-Adobe-*
       - uses: actions/upload-artifact@v4
         with:
           name: Gyroflow-frei0r-${{ matrix.targets.type }}
