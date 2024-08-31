@@ -7,6 +7,7 @@ use std::str::FromStr;
 use serde::{ Serialize, Serializer, Deserialize, Deserializer };
 use std::sync::Arc;
 use parking_lot::RwLock;
+use crate::StoredParams;
 
 pub fn frame_from_timetype(time: TimeType) -> f64 {
     match time {
@@ -131,10 +132,6 @@ pub fn param_index_for_type(type_: Params, init: Option<std::collections::HashMa
     map.get(&type_).map(|x| x.index)
 }
 
-
-use gyroflow_plugin_base::PluginResult;
-
-use crate::StoredParams;
 
 pub enum ParamsInner<'a, 'b> where 'b: 'a {
     Ae(&'a mut ae::Parameters<'b, Params>),

@@ -32,8 +32,6 @@ struct Plugin {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct StoredParams {
-    pub in_size: (usize, usize),
-    pub out_size: (usize, usize),
     pub media_file_path: String,
     pub project_path: String,
     pub instance_id: String,
@@ -42,8 +40,6 @@ pub struct StoredParams {
 impl Default for StoredParams {
     fn default() -> Self {
         Self {
-            in_size: (0, 0),
-            out_size: (0, 0),
             media_file_path: String::new(),
             project_path: String::new(),
             instance_id: format!("{}", fastrand::u64(..)),
@@ -500,8 +496,6 @@ impl AdobePluginInstance for CrossThreadInstance {
                         let mut params = _self.stored.write();
                         params.project_path = GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned());
                         params.media_file_path = footage_path;
-                        params.in_size = (in_data.width() as _, in_data.height() as _);
-                        params.out_size = params.in_size;
                     }
                     Ok(())
                 })();
@@ -530,13 +524,10 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                     let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
 
-                    let (nw, nh) = ((params.get_f64(Params::OutputWidth).unwrap() * sx) as i32, (params.get_f64(Params::OutputHeight).unwrap() * sy) as i32);
-                    extra.set_result_rect(ae::Rect {
-                        left:   (result_rect.width() - nw) / 2,
-                        top:    (result_rect.height() - nh) / 2,
-                        right:  (result_rect.width() - nw) / 2 + nw,
-                        bottom: (result_rect.height() - nh) / 2 + nh
-                    });
+                    let (w, h) = ((params.get_f64(Params::OutputWidth).unwrap() * sx) as i32, (params.get_f64(Params::OutputHeight).unwrap() * sy) as i32);
+                    let (x, y) = ((result_rect.width() - w) / 2, (result_rect.height() - h) / 2);
+
+                    extra.set_result_rect(ae::Rect { left: x, top: y, right: x + w, bottom: y + h });
                     extra.set_max_result_rect(extra.result_rect());
                     extra.set_returns_extra_pixels(true);
 
