@@ -38,8 +38,6 @@ pub struct StoredParams {
     pub project_path: String,
     pub instance_id: String,
     pub status: String,
-
-    pub params_copy_for_pr: PremiereParamHelper
 }
 impl Default for StoredParams {
     fn default() -> Self {
@@ -50,8 +48,6 @@ impl Default for StoredParams {
             project_path: String::new(),
             instance_id: format!("{}", fastrand::u64(..)),
             status: "Project not loaded".to_owned(),
-
-            params_copy_for_pr: Default::default()
         }
     }
 }
@@ -395,24 +391,19 @@ impl CrossThreadInstance {
 
         let mut _self = _self.write();
         let stored = _self.stored.clone();
-        let stored2 = _self.stored.clone();
         if let Some(inst) = _self.gyroflow.as_mut() {
-            let mut params = ParamHandler { inner: plugin.params, stored: stored };
+            let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
             //let current_instance_id = params.get_string(Params::InstanceId).unwrap_or_default();
             if let Err(e) = inst.param_changed(&mut params, &plugin.global.gyroflow.manager_cache, param, true) {
                 log::error!("param_changed error: {e:?}");
             }
 
-            let pr_params = PremiereParamHelper::from_params(&params);
-
-            stored2.write().params_copy_for_pr = pr_params;
             /*if current_instance_id != params.get_string(Params::InstanceId).unwrap_or_default() {
                 log::warn!("Instance ID changed, creating new cross thread instance!");
                 self.id = fastrand::u64(..);
             }*/
 
             let _ = inst.stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, (0, 0), false);
-
         }
 
         Ok(())
@@ -535,10 +526,9 @@ impl AdobePluginInstance for CrossThreadInstance {
                     let _self = self.get().unwrap();
                     let mut _self = _self.write();
 
-                    let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
+                    let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: _self.stored.clone() };
 
                     let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
-                    log::info!("SmartPreRender sx: {sx}, sy: {sy}: {result_rect:?}, {_max_result_rect:?}");
 
                     let (nw, nh) = ((params.get_f64(Params::OutputWidth).unwrap() * sx) as i32, (params.get_f64(Params::OutputHeight).unwrap() * sy) as i32);
                     extra.set_result_rect(ae::Rect {
@@ -562,7 +552,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                 let _self = self.get().unwrap();
                 let mut _self = _self.write();
 
-                let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
+                let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: _self.stored.clone() };
 
                 // Output buffer resizing may only occur during PF_Cmd_FRAME_SETUP.
                 let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
@@ -660,7 +650,6 @@ impl pr::GpuFilter for PremiereGPU {
                     let media_node = filter.video_segment_suite.acquire_input_node_id(clip_node, 0)?;
 
                     if inst.stored.read().media_file_path.is_empty() {
-
                         if let Ok(pr::PropertyData::String(media_path)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
                             let mut stored = inst.stored.write();
                             stored.project_path = GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned());
@@ -696,8 +685,7 @@ impl pr::GpuFilter for PremiereGPU {
 
                     log::info!("{:?}", inst.stored);
 
-                    let mut params = inst.stored.read().params_copy_for_pr.clone();
-                    log::info!("{params:?}");
+                    let mut params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
 
                     let base_inst = inst.gyroflow.as_mut().unwrap();
 

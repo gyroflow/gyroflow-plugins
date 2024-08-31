@@ -1,6 +1,7 @@
 
 use gyroflow_plugin_base::*;
 use after_effects as ae;
+use premiere as pr;
 use ae::{ ParamFlag, ParamUIFlags, ValueDisplayFlag };
 use std::str::FromStr;
 use serde::{ Serialize, Serializer, Deserialize, Deserializer };
@@ -135,8 +136,13 @@ use gyroflow_plugin_base::PluginResult;
 
 use crate::StoredParams;
 
+pub enum ParamsInner<'a, 'b> where 'b: 'a {
+    Ae(&'a mut ae::Parameters<'b, Params>),
+    Premiere((&'a pr::GpuFilterData, pr::RenderParams))
+}
+
 pub struct ParamHandler<'a, 'b> where 'b: 'a {
-    pub inner: &'a mut ae::Parameters<'b, Params>,
+    pub inner: ParamsInner<'a, 'b>,
     pub stored: Arc<RwLock<StoredParams>>,
 }
 impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
@@ -150,7 +156,14 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         if p == Params::InstanceId {
             return Ok(self.stored.read().instance_id.clone());
         }
-        Ok(self.inner.get(p)?.as_arbitrary()?.value::<ArbString>()?.get().to_string())
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_arbitrary()?.value::<ArbString>()?.get().to_string())
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                Ok(filter.param_arbitrary_data::<ArbString>(param_index_for_type(p, None).unwrap(), render_params.clip_time()).unwrap().get().to_owned())
+            }
+        }
     }
     fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> {
         log::info!("set_string: {p:?} = {v}");
@@ -164,12 +177,19 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         if p == Params::InstanceId {
             self.stored.write().instance_id = v.to_owned();
         }
-        let mut p = self.inner.get_mut(p)?;
-        if let Ok(mut arb) = p.as_arbitrary_mut()?.value::<ArbString>() {
-            arb.set(v);
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                let mut p = x.get_mut(p)?;
+                if let Ok(mut arb) = p.as_arbitrary_mut()?.value::<ArbString>() {
+                    arb.set(v);
+                }
+                p.set_value_changed();
+                // p.update_param_ui()?;
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
         }
-        p.set_value_changed();
-        // p.update_param_ui()?;
 
         Ok(())
     }
@@ -177,20 +197,54 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         if p == Params::Status {
             return Ok(self.get_string(p)? == "OK");
         }
-        Ok(self.inner.get(p)?.as_checkbox()?.value())
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_checkbox()?.value())
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                    Ok(pr::Param::Bool(x)) => Ok(x),
+                    _ => Ok(false)
+                }
+            }
+        }
     }
     fn set_bool(&mut self, p: Params, v: bool) -> PluginResult<()> {
         if p == Params::Status {
             return Ok(());
         }
-        self.inner.get_mut(p)?.as_checkbox_mut()?.set_value(v);
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                x.get_mut(p)?.as_checkbox_mut()?.set_value(v);
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
+        }
         Ok(())
     }
     fn get_f64(&self, p: Params) -> PluginResult<f64> {
-        Ok(self.inner.get(p)?.as_float_slider()?.value())
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_float_slider()?.value())
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                    Ok(pr::Param::Float64(x)) => Ok(x),
+                    _ => Err("Param not found".into())
+                }
+            }
+        }
     }
     fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> {
-        self.inner.get_mut(p)?.as_float_slider_mut()?.set_value(v);
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
+        }
         Ok(())
     }
     fn set_label(&mut self, p: Params, label: &str) -> PluginResult<()> {
@@ -198,9 +252,16 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             self.set_string(p, label)?;
             return Ok(());
         }
-        let mut x = self.inner.get_mut(p)?.clone();
-        x.set_name(label);
-        x.update_param_ui()?;
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                let mut x = x.get_mut(p)?.clone();
+                x.set_name(label);
+                x.update_param_ui()?;
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
+        }
 
         Ok(())
     }
@@ -208,29 +269,60 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn set_enabled(&mut self, p: Params, v: bool) -> PluginResult<()> {
-        let mut x = self.inner.get_mut(p)?.clone();
-        x.set_ui_flag(ae::ParamUIFlags::DISABLED, !v);
-        x.set_flag(ae::ParamFlag::TWIRLY, true);
-        x.update_param_ui()?;
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                let mut x = x.get_mut(p)?.clone();
+                x.set_ui_flag(ae::ParamUIFlags::DISABLED, !v);
+                x.set_flag(ae::ParamFlag::TWIRLY, true);
+                x.update_param_ui()?;
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
+        }
         Ok(())
     }
     fn get_f64_at_time(&self, p: Params, time: TimeType) -> PluginResult<f64> {
         // TODO
-        Ok(self.inner.get(p)?.as_float_slider()?.value())
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_float_slider()?.value())
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                    Ok(pr::Param::Float64(x)) => Ok(x),
+                    _ => Err("Param not found".into())
+                }
+            }
+        }
     }
     fn get_bool_at_time(&self, p: Params, time: TimeType) -> PluginResult<bool> {
         // TODO
-        Ok(self.inner.get(p)?.as_checkbox()?.value())
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_checkbox()?.value())
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                    Ok(pr::Param::Bool(x)) => Ok(x),
+                    _ => Ok(false)
+                }
+            }
+        }
     }
     fn clear_keyframes(&mut self, param: Params) -> PluginResult<()> {
         // TODO
         Ok(())
     }
     fn is_keyframed(&self, p: Params) -> bool {
-        self.inner
-            .get(p)
-            .map(|x| x.keyframe_count().unwrap_or(0) > 0)
-            .unwrap_or_default()
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                x.get(p)
+                 .map(|x| x.keyframe_count().unwrap_or(0) > 0)
+                 .unwrap_or_default()
+            }
+            _ => false
+        }
     }
     fn get_keyframes(&self, p: Params) -> Vec<(TimeType, f64)> {
         // TODO
@@ -238,56 +330,16 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn set_f64_at_time(&mut self, p: Params, time: TimeType, v: f64) -> PluginResult<()> {
         // TODO
-        self.inner.get_mut(p)?.as_float_slider_mut()?.set_value(v);
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
+            }
+            ParamsInner::Premiere((_filter, _render_params)) => {
+                // TODO
+            }
+        }
         Ok(())
     }
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
-pub struct PremiereParamHelper {
-    map: std::collections::BTreeMap<Params, String>
-}
-impl PremiereParamHelper {
-    pub fn from_params(params: &ParamHandler) -> Self {
-        let mut map = std::collections::BTreeMap::new();
-        let strs = [Params::InstanceId, Params::ProjectPath, Params::EmbeddedLensProfile, Params::EmbeddedPreset, Params::ProjectData];
-        let bools = [Params::DisableStretch, Params::IncludeProjectData, Params::UseGyroflowsKeyframes, Params::ToggleOverview];
-
-        for pstr in strs {
-            map.insert(pstr, params.get_string(pstr).unwrap());
-        }
-        for pbool in bools {
-            map.insert(pbool, params.get_bool(pbool).unwrap().to_string());
-        }
-        Self { map }
-    }
-}
-impl GyroflowPluginParams for PremiereParamHelper {
-    fn get_string(&self, p: Params) -> PluginResult<String> {
-        if let Some(x) = self.map.get(&p) {
-            return Ok(x.clone());
-        }
-        Err("Param not found".into())
-    }
-    fn set_string(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
-    fn get_bool(&self, p: Params) -> PluginResult<bool> {
-        if let Some(x) = self.map.get(&p) {
-            return Ok(x == "true");
-        }
-        Err("Param not found".into())
-    }
-    fn set_bool(&mut self, _: Params, _: bool) -> PluginResult<()> { Ok(()) }
-    fn get_f64(&self, _: Params) -> PluginResult<f64> { Ok(0.0) }
-    fn set_f64(&mut self, _: Params, _: f64) -> PluginResult<()> { Ok(()) }
-    fn set_label(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
-    fn set_hint(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
-    fn set_enabled(&mut self, _: Params, _: bool) -> PluginResult<()> { Ok(()) }
-    fn get_f64_at_time(&self, _: Params, _: TimeType) -> PluginResult<f64> { Ok(0.0) }
-    fn get_bool_at_time(&self, _: Params, _: TimeType) -> PluginResult<bool> { Ok(false) }
-    fn clear_keyframes(&mut self, _: Params) -> PluginResult<()> { Ok(()) }
-    fn is_keyframed(&self, _: Params) -> bool { false }
-    fn get_keyframes(&self, _: Params) -> Vec<(TimeType, f64)> { Vec::new() }
-    fn set_f64_at_time(&mut self, _: Params, _: TimeType, _: f64) -> PluginResult<()> { Ok(()) }
 }
 
 /*
