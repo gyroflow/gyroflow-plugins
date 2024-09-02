@@ -624,7 +624,7 @@ impl Execute for GyroflowPlugin {
                 let _has_dx12   = wgpu_devices.iter().any(|x| x.contains("(Dx12)"));
 
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
-                if _has_metal { let _ = effect_properties.set_metal_render_supported("true"); }
+                if _has_metal && std::env::var("NO_METAL").unwrap_or_default().is_empty() { let _ = effect_properties.set_metal_render_supported("true"); }
                 #[cfg(any(target_os = "windows", target_os = "linux"))]
                 if _has_vulkan || _has_dx12 { let _ = effect_properties.set_cuda_render_supported("true"); }
 
