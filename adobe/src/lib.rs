@@ -349,17 +349,21 @@ impl AdobePluginGlobal for Plugin {
 }
 impl CrossThreadInstance {
     fn user_changed_param(&mut self, plugin: &mut PluginState, param: Params) -> Result<(), ae::Error> {
-        let _self = self.get().unwrap();
         match param {
             Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
             Params::HorizonLockAmount | Params::HorizonLockRoll |
             Params::AdditionalPitch | Params::AdditionalYaw | Params::Rotation | Params::InputRotation | Params::VideoSpeed |
-            Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
+            Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes |
+            Params::OutputHeight | Params::OutputWidth | Params::OutputSizeSwap | Params::OutputSizeToTimeline => {
+                let _self = self.get().unwrap();
                 let _self = _self.read();
+                if matches!(param, Params::OutputHeight | Params::OutputWidth | Params::OutputSizeSwap | Params::OutputSizeToTimeline) {
+                    let mut stored = _self.stored.write();
+                    stored.sequence_size = (0, 0);
+                }
                 let ever_changed = _self.gyroflow.as_ref().map(|x| x.ever_changed).unwrap_or_default();
                 if !ever_changed {
                     log::warn!("Instance ID changed, creating new cross thread instance!");
-                    log::info!("Instance ID changed, creating new cross thread instance!");
                     let new = Self::default();
                     let new_inst = new.get().unwrap();
                     let mut new_inst = new_inst.write();
@@ -371,13 +375,9 @@ impl CrossThreadInstance {
                     self.id = new.id;
                 }
             }
-            Params::OutputHeight | Params::OutputWidth | Params::OutputSizeSwap | Params::OutputSizeToTimeline => {
-                let _self = _self.read();
-                let mut stored = _self.stored.write();
-                stored.sequence_size = (0, 0);
-            }
             _ => { }
         }
+        let _self = self.get().unwrap();
 
         let mut _self = _self.write();
         let stored = _self.stored.clone();
@@ -694,13 +694,6 @@ impl pr::GpuFilter for PremiereGPU {
                     base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
 
                     if let Ok(stab) = base_inst.stab_manager(&mut params, &global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
-                        // Cache it in this instance as well
-                        if !base_inst.managers.contains(&key) {
-                            base_inst.managers.put(key.to_owned(), stab.clone());
-                        }
-                        base_inst.set_keyframe_provider(&stab);
-                        log::info!("key found: {key}");
-
                         let local_time = filter.video_segment_suite.transform_node_time(clip_node, render_params.clip_time())?;
                         let time_scale = filter.video_segment_suite.node_time_scale(clip_node, render_params.clip_time())?;
                         let time_scale2 = filter.video_segment_suite.node_time_scale(media_node.1, render_params.clip_time())?;
