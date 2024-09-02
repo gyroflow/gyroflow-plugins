@@ -74,6 +74,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
         ParameterType::Button { id, label, .. } => {
             let p = Params::from_str(id).unwrap();
             if p == Params::OpenGyroflow { return; }
+            if p == Params::LoadCurrent { return; }
             params.add_with_flags(p, "", ae::ButtonDef::setup(|f| { f.set_label(label); }), ParamFlag::SUPERVISE | ParamFlag::CANNOT_TIME_VARY, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Text { id, label, .. } => {
@@ -183,9 +184,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 p.set_value_changed();
                 // p.update_param_ui()?;
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
 
         Ok(())
@@ -214,13 +213,17 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_checkbox_mut()?.set_value(v);
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
     }
     fn get_f64(&self, p: Params) -> PluginResult<f64> {
+        if p == Params::OutputWidth || p == Params::OutputHeight {
+            let stored = self.stored.read();
+            if stored.sequence_size != (0, 0) {
+                return Ok(if p == Params::OutputWidth { stored.sequence_size.0 as f64 } else { stored.sequence_size.1 as f64 });
+            }
+        }
         match &self.inner {
             ParamsInner::Ae(x) => {
                 Ok(x.get(p)?.as_float_slider()?.value())
@@ -238,9 +241,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
     }
@@ -255,9 +256,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 x.set_name(label);
                 x.update_param_ui()?;
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
 
         Ok(())
@@ -273,9 +272,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 x.set_flag(ae::ParamFlag::TWIRLY, true);
                 x.update_param_ui()?;
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
     }
@@ -331,9 +328,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
             }
-            ParamsInner::Premiere((_filter, _render_params)) => {
-                // TODO
-            }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
     }
