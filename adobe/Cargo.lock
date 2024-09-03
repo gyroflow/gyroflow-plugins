@@ -26,7 +26,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 [[package]]
 name = "after-effects"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#c633ec165f0250506313e74b17abe1e85e303fff"
+source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -49,7 +49,7 @@ dependencies = [
 [[package]]
 name = "after-effects-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#c633ec165f0250506313e74b17abe1e85e303fff"
+source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
 dependencies = [
  "bindgen 0.70.1",
 ]
@@ -2665,7 +2665,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.0"
-source = "git+https://github.com/AdrianEddy/after-effects.git#c633ec165f0250506313e74b17abe1e85e303fff"
+source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2731,7 +2731,7 @@ dependencies = [
 [[package]]
 name = "premiere"
 version = "0.0.1"
-source = "git+https://github.com/AdrianEddy/after-effects.git#c633ec165f0250506313e74b17abe1e85e303fff"
+source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
 dependencies = [
  "base64",
  "bincode",
@@ -2746,7 +2746,7 @@ dependencies = [
 [[package]]
 name = "premiere-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#c633ec165f0250506313e74b17abe1e85e303fff"
+source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
 dependencies = [
  "bindgen 0.69.4",
 ]
