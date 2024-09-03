@@ -2,6 +2,7 @@
 use lru::LruCache;
 use parking_lot::{ Mutex, RwLock };
 use std::sync::{ Arc, atomic::AtomicBool };
+use std::path::{ Path, PathBuf };
 
 pub use gyroflow_core::{ StabilizationManager, keyframes::*, stabilization::*, filesystem, gpu::* };
 pub use gyroflow_core;
@@ -808,16 +809,16 @@ impl GyroflowPluginBaseInstance {
             }
         }
         if param == Params::LoadLens {
-            let lens_directory = || -> Option<std::path::PathBuf> {
+            let lens_directory = || -> Option<PathBuf> {
                 let exe = GyroflowPluginBase::get_gyroflow_location()?;
                 if cfg!(target_os = "macos") {
-                    let mut path = std::path::Path::new(&exe).to_path_buf();
+                    let mut path = Path::new(&exe).to_path_buf();
                     path.push("Contents");
                     path.push("Resources");
                     path.push("camera_presets");
                     Some(path.into())
                 } else {
-                    let mut path = std::path::Path::new(&exe).parent()?.to_path_buf();
+                    let mut path = Path::new(&exe).parent()?.to_path_buf();
                     path.push("camera_presets");
                     Some(path.into())
                 }

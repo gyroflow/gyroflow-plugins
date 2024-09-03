@@ -519,21 +519,20 @@ impl AdobePluginInstance for CrossThreadInstance {
                 stored.sequence_size = (in_data.width() as _, in_data.height() as _);
 
                 let _ = (|| -> Result<(), ae::Error> {
-                    let footage_path = in_data.effect()
-                                              .layer()?
-                                              .source_item()?
-                                              .main_footage()?
-                                              .path(0, 0)?;
+                    let layer = in_data.effect().layer()?;
+                    let footage_path = layer
+                                      .source_item()?
+                                      .main_footage()?
+                                      .path(0, 0)?;
                     if !footage_path.is_empty() {
                         stored.project_path = GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned());
                         stored.media_file_path = footage_path;
                     }
 
-                    let comp_dimensions = in_data.effect()
-                                                 .layer()?
-                                                 .parent_comp()?
-                                                 .item()?
-                                                 .dimensions()?;
+                    let comp_dimensions = layer
+                                         .parent_comp()?
+                                         .item()?
+                                         .dimensions()?;
                     stored.sequence_size = (comp_dimensions.0 as _, comp_dimensions.1 as _);
                     Ok(())
                 })();
@@ -712,9 +711,9 @@ impl pr::GpuFilter for PremiereGPU {
 
                 let mut params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
 
-                let disable_stretch = params.get_bool(Params::DisableStretch).unwrap();
                 let path = params.get_string(Params::ProjectPath).unwrap();
                 let instance_id = params.get_string(Params::InstanceId).unwrap();
+                let disable_stretch = params.get_bool(Params::DisableStretch).unwrap();
 
                 let out_w = params.get_f64(Params::OutputWidth).unwrap();
                 let out_h = params.get_f64(Params::OutputHeight).unwrap();
@@ -730,9 +729,13 @@ impl pr::GpuFilter for PremiereGPU {
                 base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
 
                 if let Ok(stab) = base_inst.stab_manager(&mut params, &global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
-                    let ticks_per_sec = pr::suites::Time::new().and_then(|x| x.ticks_per_second()).unwrap_or(254016000000) as f64;
+                    static TICKS_PER_SEC: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+                    let ticks_per_sec = *TICKS_PER_SEC.get_or_init(|| pr::suites::Time::new().and_then(|x| x.ticks_per_second()).unwrap_or(254016000000) as f64);
 
-                    let fps = stab.params.read().fps;
+                    let (org_ratio, fps) = {
+                        let params = stab.params.read();
+                        (params.size.0 as f64 / params.size.1 as f64, params.fps)
+                    };
 
                     let fps_ticks = inst.stored.read().media_fps_ticks;
                     let fps_ticks = if fps_ticks == 0 { ticks_per_sec as f64 / fps } else { fps_ticks as f64 };
@@ -743,11 +746,6 @@ impl pr::GpuFilter for PremiereGPU {
                     let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
                     let timestamp_us = (frame * (1_000_000.0 / fps)).round() as i64;
                     log::info!("timestamp_us2: {timestamp_us}");
-
-                    let org_ratio = {
-                        let params = stab.params.read();
-                        params.size.0 as f64 / params.size.1 as f64
-                    };
 
                     let src_size = (in_size.0 as usize, in_size.1 as usize, in_stride as usize);
                     let dest_size = (out_size.0 as usize, out_size.1 as usize, out_stride as usize);

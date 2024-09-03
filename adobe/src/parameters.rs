@@ -9,10 +9,17 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use crate::StoredParams;
 
-pub fn frame_from_timetype(time: TimeType) -> f64 {
+pub fn ticks_from_timetype(time: TimeType, ticks_per_frame: i64) -> i64 {
     match time {
-        TimeType::Frame(x) => x,
-        TimeType::FrameOrMicrosecond((Some(x), _)) => x,
+        TimeType::Frame(x) => (x * ticks_per_frame as f64).round() as i64,
+        TimeType::FrameOrMicrosecond((Some(x), _)) => (x * ticks_per_frame as f64).round() as i64,
+        _ => panic!("Shouldn't happen"),
+    }
+}
+pub fn ae_time_from_timetype(time: TimeType, time_step: i32, _time_scale: u32) -> i32 {
+    match time {
+        TimeType::Frame(x) => (x * time_step as f64).round() as i32,
+        TimeType::FrameOrMicrosecond((Some(x), _)) => (x * time_step as f64).round() as i32,
         _ => panic!("Shouldn't happen"),
     }
 }
@@ -88,12 +95,6 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 param.set_ui_height(15);
                 -1
             }).unwrap();
-            /*if id == "Status" { return; }
-            params.add_with_flags(Params::from_str(id).unwrap(), label, ae::CheckBoxDef::setup(|f| {
-                f.set_default(false);
-                f.set_value(false);
-                f.set_label("");
-            }), ParamFlag::SUPERVISE, ParamUIFlags::DISABLED).unwrap();*/
         }
         ParameterType::Slider { id, label, min, max, default, .. } => {
             params.add_with_flags(Params::from_str(id).unwrap(), label, ae::FloatSliderDef::setup(|f| {
@@ -165,7 +166,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> {
         log::info!("set_string: {p:?} = {v}");
-        if p == Params::ProjectPath {
+        if p == Params::ProjectPath && matches!(self.inner, ParamsInner::Ae(_)) {
             // let arbitrary data take over
             self.stored.write().project_path.clear();
         }
@@ -277,13 +278,14 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn get_f64_at_time(&self, p: Params, time: TimeType) -> PluginResult<f64> {
-        // TODO
         match &self.inner {
             ParamsInner::Ae(x) => {
-                Ok(x.get(p)?.as_float_slider()?.value())
+                let in_data = x.in_data();
+                let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
+                Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_float_slider()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                match filter.param(param_index_for_type(p, None).unwrap(), ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
                     Ok(pr::Param::Float64(x)) => Ok(x),
                     _ => Err("Param not found".into())
                 }
@@ -291,13 +293,14 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
     }
     fn get_bool_at_time(&self, p: Params, time: TimeType) -> PluginResult<bool> {
-        // TODO
         match &self.inner {
             ParamsInner::Ae(x) => {
-                Ok(x.get(p)?.as_checkbox()?.value())
+                let in_data = x.in_data();
+                let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
+                Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_checkbox()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
+                match filter.param(param_index_for_type(p, None).unwrap(), ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
                     Ok(pr::Param::Bool(x)) => Ok(x),
                     _ => Ok(false)
                 }
@@ -311,15 +314,20 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     fn is_keyframed(&self, p: Params) -> bool {
         match &self.inner {
             ParamsInner::Ae(x) => {
-                x.get(p)
-                 .map(|x| x.keyframe_count().unwrap_or(0) > 0)
-                 .unwrap_or_default()
+                if let Ok(keyframe_count) = x.get(p).and_then(|x| x.keyframe_count()) {
+                    keyframe_count > 0
+                } else {
+                    // I didn't find any way to check if a param is keyframed in Premiere, so let's assume they are all keyframed
+                    // TODO
+                    true
+                }
             }
-            _ => false
+            ParamsInner::Premiere((filter, _render_params)) => {
+                filter.next_keyframe_time(param_index_for_type(p, None).unwrap(), -1) != Err(pr::Error::NoKeyframeAfterInTime)
+            }
         }
     }
-    fn get_keyframes(&self, p: Params) -> Vec<(TimeType, f64)> {
-        // TODO
+    fn get_keyframes(&self, _p: Params) -> Vec<(TimeType, f64)> {
         Vec::new()
     }
     fn set_f64_at_time(&mut self, p: Params, time: TimeType, v: f64) -> PluginResult<()> {
