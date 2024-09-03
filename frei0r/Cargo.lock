@@ -655,37 +655,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
-name = "com"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e17887fd17353b65b1b2ef1c526c83e26cd72e74f598a8dc1bee13a48f3d9f6"
-dependencies = [
- "com_macros",
-]
-
-[[package]]
-name = "com_macros"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d375883580a668c7481ea6631fc1a8863e33cc335bf56bfad8d7e6d4b04b13a5"
-dependencies = [
- "com_macros_support",
- "proc-macro2",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "com_macros_support"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad899a1087a9296d5644792d7cb72b8e34c1bec8e7d4fbc002230169a6e8710c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1429,7 +1398,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=54a080d#54a080d454b2e26724c0427479509b3c767d2eda"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=8f4b9c3#8f4b9c3641083e95c526457b97a64614a373ef11"
 dependencies = [
  "ahrs",
  "akaze",
@@ -1566,21 +1535,6 @@ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash",
  "allocator-api2",
-]
-
-[[package]]
-name = "hassle-rs"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af2a7e73e1f34c48da31fb668a907f250794837e08faa144fd24f0b8b741e890"
-dependencies = [
- "bitflags 2.6.0",
- "com",
- "libc",
- "libloading",
- "thiserror",
- "widestring",
- "winapi",
 ]
 
 [[package]]
@@ -1968,7 +1922,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=bbdbafd#bbdbafdf8a947b563b46f632a778632b906d9eb4"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee35b0e#ee35b0e5866795d3fdd8307b1fa67018cf5cdd09"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-set",
@@ -3115,7 +3069,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=54a080d#54a080d454b2e26724c0427479509b3c767d2eda"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=8f4b9c3#8f4b9c3641083e95c526457b97a64614a373ef11"
 dependencies = [
  "spirv-std",
 ]
@@ -3560,7 +3514,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=bbdbafd#bbdbafdf8a947b563b46f632a778632b906d9eb4"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee35b0e#ee35b0e5866795d3fdd8307b1fa67018cf5cdd09"
 dependencies = [
  "arrayvec 0.7.6",
  "cfg_aliases 0.1.1",
@@ -3584,7 +3538,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=bbdbafd#bbdbafdf8a947b563b46f632a778632b906d9eb4"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee35b0e#ee35b0e5866795d3fdd8307b1fa67018cf5cdd09"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-vec",
@@ -3609,7 +3563,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=bbdbafd#bbdbafdf8a947b563b46f632a778632b906d9eb4"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee35b0e#ee35b0e5866795d3fdd8307b1fa67018cf5cdd09"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.6",
@@ -3624,7 +3578,6 @@ dependencies = [
  "gpu-alloc",
  "gpu-allocator",
  "gpu-descriptor",
- "hassle-rs",
  "js-sys",
  "khronos-egl",
  "libc",
@@ -3653,7 +3606,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=bbdbafd#bbdbafdf8a947b563b46f632a778632b906d9eb4"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee35b0e#ee35b0e5866795d3fdd8307b1fa67018cf5cdd09"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
@@ -3669,12 +3622,6 @@ dependencies = [
  "bytemuck",
  "safe_arch",
 ]
-
-[[package]]
-name = "widestring"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7219d36b6eac893fa81e84ebe06485e7dcbb616177469b142df14f1f4deb1311"
 
 [[package]]
 name = "win_dbg_logger"

@@ -211,9 +211,12 @@ impl Instance {
                             false
                         )
                     };
+
+                    let input_rotation = -plugin.params.get(Params::InputRotation)?.as_float_slider()?.value() as f32;
+
                     let mut buffers = Buffers {
-                        input:  BufferDescription { size: src_size,  rect: Some(src_rect), data: buffers.0, rotation: None, texture_copy: buffers.2 },
-                        output: BufferDescription { size: dest_size, rect: None,           data: buffers.1, rotation: None, texture_copy: buffers.2 }
+                        input:  BufferDescription { size: src_size,  rect: None, data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
+                        output: BufferDescription { size: dest_size, rect: None, data: buffers.1, rotation: None, texture_copy: buffers.2 }
                     };
                     log::info!("pixel_format: {pixel_format:?}");
                     let result = match pixel_format {
@@ -763,7 +766,7 @@ impl pr::GpuFilter for PremiereGPU {
 
                     let src_size = (in_size.0 as usize, in_size.1 as usize, in_stride as usize);
                     let dest_size = (out_size.0 as usize, out_size.1 as usize, out_stride as usize);
-                    let src_rect = GyroflowPluginBase::get_center_rect(in_size.0 as usize, in_size.1 as usize, org_ratio);
+                    // let src_rect = GyroflowPluginBase::get_center_rect(in_size.0 as usize, in_size.1 as usize, org_ratio);
                     let out_rect = GyroflowPluginBase::get_center_rect(out_size.0 as usize, out_size.1 as usize, out_w as f64 / out_h.max(1.0) as f64);
 
                     let in_ptr = in_frame_data;
@@ -794,9 +797,11 @@ impl pr::GpuFilter for PremiereGPU {
                         _ => panic!("Invalid GPU framework")
                     };
 
+                    let input_rotation = -params.get_f64(Params::InputRotation).unwrap() as f32;
+
                     let mut buffers = Buffers {
-                        input:  BufferDescription { size: src_size,  rect: Some(src_rect), data: buffers.0, rotation: None, texture_copy: buffers.2 },
-                        output: BufferDescription { size: dest_size, rect: Some(out_rect), data: buffers.1, rotation: None, texture_copy: buffers.2 }
+                        input:  BufferDescription { size: src_size,  rect: None,           data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
+                        output: BufferDescription { size: dest_size, rect: Some(out_rect), data: buffers.1, rotation: None,                 texture_copy: buffers.2 }
                     };
                     let result = match pixel_format {
                         pr::PixelFormat::GpuBgra4444_32f => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
