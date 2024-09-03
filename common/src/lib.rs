@@ -1,6 +1,7 @@
 
 use lru::LruCache;
 use parking_lot::{ Mutex, RwLock };
+use std::cell::Cell;
 use std::sync::{ Arc, atomic::AtomicBool };
 use std::path::{ Path, PathBuf };
 
@@ -60,6 +61,10 @@ pub enum Params {
     IncludeProjectData,
 }
 
+thread_local! {
+    pub static LOG_INITIALIZED: Cell<bool> = Cell::new(false);
+}
+
 pub struct GyroflowPluginBase {
     // We should cache managers globally because it's common to have the effect applied to the same clip and cut the clip into multiple pieces
     // We don't want to create a new manager for each piece of the same clip
@@ -67,14 +72,12 @@ pub struct GyroflowPluginBase {
     pub manager_cache: Mutex<LruCache<String, Arc<StabilizationManager>>>,
 
     pub context_initialized: bool,
-    pub log_initialized: bool,
 }
 impl Default for GyroflowPluginBase {
     fn default() -> Self {
         Self {
             manager_cache: Mutex::new(LruCache::new(std::num::NonZeroUsize::new(8).unwrap())),
             context_initialized: false,
-            log_initialized: false,
         }
     }
 }
@@ -92,53 +95,55 @@ impl GyroflowPluginBase {
     }
 
     pub fn initialize_log(&mut self) {
-        if !self.log_initialized {
-            log_panics::init();
+        LOG_INITIALIZED.with(|x| {
+            if !x.get() {
+                log_panics::init();
 
-            #[cfg(target_os = "windows")]
-            win_dbg_logger::init();
+                #[cfg(target_os = "windows")]
+                win_dbg_logger::init();
 
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
-            oslog::OsLogger::new("xyz.gyroflow")
-                .category_level_filter("ofx", log::LevelFilter::Error)
-                .category_level_filter("naga", log::LevelFilter::Error)
-                .category_level_filter("wgpu", log::LevelFilter::Error)
-                .category_level_filter("akaze", log::LevelFilter::Error)
-                .category_level_filter("mp4parse", log::LevelFilter::Error)
-                .init()
-                .unwrap();
+                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                oslog::OsLogger::new("xyz.gyroflow")
+                    .category_level_filter("ofx", log::LevelFilter::Error)
+                    .category_level_filter("naga", log::LevelFilter::Error)
+                    .category_level_filter("wgpu", log::LevelFilter::Error)
+                    .category_level_filter("akaze", log::LevelFilter::Error)
+                    .category_level_filter("mp4parse", log::LevelFilter::Error)
+                    .init()
+                    .unwrap();
 
-            log::set_max_level(log::LevelFilter::Debug);
-            self.log_initialized = true;
+                log::set_max_level(log::LevelFilter::Debug);
 
-            /*let mut tmp_log = std::env::temp_dir();
-            tmp_log.push("gyroflow-ofx.log");
+                /*let mut tmp_log = std::env::temp_dir();
+                tmp_log.push("gyroflow-ofx.log");
 
-            let log_path = if let Ok(path) = effect_properties.get_file_path() {
-                std::path::Path::new(&path).with_extension("log")
-            } else {
-                tmp_log.clone()
-            };
-            let log_config = [ "mp4parse", "wgpu", "naga", "akaze", "ureq", "rustls", "ofx" ]
-                .into_iter()
-                .fold(simplelog::ConfigBuilder::new(), |mut cfg, x| { cfg.add_filter_ignore_str(x); cfg })
-                .build();
+                let log_path = if let Ok(path) = effect_properties.get_file_path() {
+                    std::path::Path::new(&path).with_extension("log")
+                } else {
+                    tmp_log.clone()
+                };
+                let log_config = [ "mp4parse", "wgpu", "naga", "akaze", "ureq", "rustls", "ofx" ]
+                    .into_iter()
+                    .fold(simplelog::ConfigBuilder::new(), |mut cfg, x| { cfg.add_filter_ignore_str(x); cfg })
+                    .build();
 
-            if let Ok(file_log) = std::fs::File::create(&log_path) {
-                let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
-                self.log_initialized = true;
-            } else if let Ok(file_log) = std::fs::File::create(&tmp_log) {
-                let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
-                self.log_initialized = true;
-            } else if cfg!(target_os = "linux") {
-                if let Ok(file_log) = std::fs::File::create("/tmp/gyroflow-ofx.log") {
+                if let Ok(file_log) = std::fs::File::create(&log_path) {
                     let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
                     self.log_initialized = true;
-                } else {
-                    eprintln!("Failed to create log file: {log_path:?}, {tmp_log:?}, /tmp/gyroflow-ofx.log");
-                }
-            }*/
-        }
+                } else if let Ok(file_log) = std::fs::File::create(&tmp_log) {
+                    let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
+                    self.log_initialized = true;
+                } else if cfg!(target_os = "linux") {
+                    if let Ok(file_log) = std::fs::File::create("/tmp/gyroflow-ofx.log") {
+                        let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
+                        self.log_initialized = true;
+                    } else {
+                        eprintln!("Failed to create log file: {log_path:?}, {tmp_log:?}, /tmp/gyroflow-ofx.log");
+                    }
+                }*/
+                x.set(true);
+            }
+        });
     }
 
     pub fn get_center_rect(width: usize, height: usize, org_ratio: f64) -> (usize, usize, usize, usize) {
@@ -253,8 +258,8 @@ impl GyroflowPluginBase {
         }
     }
 
-    pub fn get_param_definitions() -> Vec<ParameterType> {
-        vec![
+    pub fn get_param_definitions() -> [ParameterType; 11] {
+        [
             ParameterType::HiddenString { id: "InstanceId" },
             ParameterType::HiddenString { id: "ProjectData" },
             ParameterType::HiddenString { id: "EmbeddedLensProfile" },

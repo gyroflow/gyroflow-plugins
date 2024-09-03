@@ -8,6 +8,7 @@ use gyroflow_plugin_base::gyroflow_core::GyroflowCoreError;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use ae::aegp::{ LayerFlags, LayerStream, TimeMode, PluginId, StreamValue };
 
 mod ui;
 
@@ -16,6 +17,7 @@ use parameters::*;
 
 use serde::{ Serialize, Deserialize };
 
+static mut AEGP_PLUGIN_ID: PluginId = 0;
 static mut IS_PREMIERE: bool = false;
 static GLOBAL_INST: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 fn global_inst<'a>() -> &'a mut Plugin {
@@ -146,7 +148,17 @@ impl Instance {
 
                     let layer_flags = in_data.effect().layer()?.flags()?;
 
-                    if !layer_flags.contains(ae::aegp::LayerFlags::FRAME_BLENDING) {
+                    if layer_flags.contains(LayerFlags::TIME_REMAPPING) {
+                        let plugin_id = unsafe { AEGP_PLUGIN_ID };
+                        if let Ok(tr) = in_data.effect().layer()?.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
+                            let time = ae::Time { value: in_data.current_time(), scale: in_data.time_scale() };
+                            if let Ok(StreamValue::OneD(v)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
+                                timestamp_us = (v * 1_000_000.0).round() as i64;
+                            }
+                        }
+                    }
+
+                    if !layer_flags.contains(LayerFlags::FRAME_BLENDING) {
                         let frame = timestamp_us as f64 * (fps / 1_000_000.0);
                         log::info!("frame: {frame}");
                         let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
@@ -298,9 +310,7 @@ impl AdobePluginGlobal for Plugin {
     }
 
     fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
-        let _ = log::set_logger(&win_dbg_logger::DEBUGGER_LOGGER);
-        log::set_max_level(log::LevelFilter::Debug);
-        log_panics::init();
+        self.gyroflow.initialize_log();
 
         // log::info!("global command: {:?}, thread: {:?}, ptr: {:?}, effect_ref: {:?}", cmd, std::thread::current().id(), self as *const _, in_data.effect_ref().as_ptr());
 
@@ -331,6 +341,10 @@ impl AdobePluginGlobal for Plugin {
                     out_data.set_out_flag2(ae::OutFlags2::SupportsGpuRenderF32, false);
                 } else {
                     out_data.set_out_flag2(ae::OutFlags2::SupportsGpuRenderF32, true);
+
+                    if let Ok(util) = ae::aegp::suites::Utility::new() {
+                        unsafe { AEGP_PLUGIN_ID = util.register_with_aegp(None, "Gyroflow")?; }
+                    }
                 }
 
                 let _ = in_data.effect().set_options_button_name("Open Gyroflow");
