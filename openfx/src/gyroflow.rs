@@ -623,6 +623,12 @@ impl Execute for GyroflowPlugin {
                 let _has_vulkan = wgpu_devices.iter().any(|x| x.contains("(Vulkan)"));
                 let _has_dx12   = wgpu_devices.iter().any(|x| x.contains("(Dx12)"));
 
+                #[cfg(target_os = "macos")]
+                if !wgpu_devices.iter().any(|x| x.to_ascii_lowercase().contains("apple m")) {
+                    std::env::set_var("NO_METAL", "1");
+                    std::env::set_var("NO_WGPU", "1");
+                }
+
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
                 if _has_metal && std::env::var("NO_METAL").unwrap_or_default().is_empty() { let _ = effect_properties.set_metal_render_supported("true"); }
                 #[cfg(any(target_os = "windows", target_os = "linux"))]
