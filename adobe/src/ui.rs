@@ -33,7 +33,6 @@ impl PngImage {
 
 pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &mut ae::EventExtra, inst: &mut CrossThreadInstance) -> Result<(), ae::Error> {
     if event.effect_area() == ae::EffectArea::Control {
-
         let current_frame = event.current_frame();
 
         let drawbot = event.context_handle().drawing_reference()?;
@@ -65,24 +64,34 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
 
         // Draw status
         if event.param_index() == params.index(Params::Status).unwrap_or_default() {
-            let _self = inst.get().unwrap();
-            let status = _self.read().stored.read().status.clone();
-
-            let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
-            let text_color = if status == "OK" {
-                ae::drawbot::ColorRgba { red: 0.22, green: 0.86, blue: 0.1, alpha: 1.0 } // Green
-            } else if status == "Calculating..." {
-                ae::drawbot::ColorRgba { red: 0.92, green: 0.57, blue: 0.08, alpha: 1.0 } // Yellow
-            } else {
-                ae::drawbot::ColorRgba { red: 0.95, green: 0.15, blue: 0.15, alpha: 1.0 } // Red
-            };
-            let string_brush = supplier.new_brush(&text_color)?;
-            let origin = ae::drawbot::PointF32 {
-                x: current_frame.left as f32,
-                y: current_frame.top as f32 + 10.0,
+            let status = {
+                let _self = inst.get().unwrap();
+                let x = if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
+                    let stored = _self.stored.read();
+                    stored.status.clone()
+                } else {
+                    String::new()
+                };
+                x
             };
 
-            surface.draw_string(&string_brush, &font, &status, &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+            if !status.is_empty() {
+                let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
+                let text_color = if status == "OK" {
+                    ae::drawbot::ColorRgba { red: 0.22, green: 0.86, blue: 0.1, alpha: 1.0 } // Green
+                } else if status == "Calculating..." {
+                    ae::drawbot::ColorRgba { red: 0.92, green: 0.57, blue: 0.08, alpha: 1.0 } // Yellow
+                } else {
+                    ae::drawbot::ColorRgba { red: 0.95, green: 0.15, blue: 0.15, alpha: 1.0 } // Red
+                };
+                let string_brush = supplier.new_brush(&text_color)?;
+                let origin = ae::drawbot::PointF32 {
+                    x: current_frame.left as f32,
+                    y: current_frame.top as f32 + 10.0,
+                };
+
+                surface.draw_string(&string_brush, &font, &status, &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+            }
         }
 
         // Draw project path
@@ -90,7 +99,9 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
             let mut path = params.get(Params::ProjectPath)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
             if path.is_empty() {
                 let _self = inst.get().unwrap();
-                path = _self.read().stored.read().project_path.clone();
+                if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
+                    path = _self.stored.read().project_path.clone();
+                };
             }
 
             let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;

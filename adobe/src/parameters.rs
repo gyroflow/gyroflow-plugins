@@ -80,7 +80,6 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
 
         ParameterType::Button { id, label, .. } => {
             let p = Params::from_str(id).unwrap();
-            if p == Params::OpenGyroflow { return; }
             if p == Params::LoadCurrent { return; }
             params.add_with_flags(p, "", ae::ButtonDef::setup(|f| { f.set_label(label); }), ParamFlag::SUPERVISE | ParamFlag::CANNOT_TIME_VARY, ParamUIFlags::empty()).unwrap();
         }
@@ -254,7 +253,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 let mut x = x.get_mut(p)?.clone();
-                x.set_name(label);
+                if p == Params::OpenGyroflow {
+                    x.as_button_mut()?.set_label(label);
+                } else {
+                    x.set_name(label);
+                }
                 x.update_param_ui()?;
             }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
