@@ -749,10 +749,7 @@ impl pr::GpuFilter for PremiereGPU {
                     static TICKS_PER_SEC: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
                     let ticks_per_sec = *TICKS_PER_SEC.get_or_init(|| pr::suites::Time::new().and_then(|x| x.ticks_per_second()).unwrap_or(254016000000) as f64);
 
-                    let (org_ratio, fps) = {
-                        let params = stab.params.read();
-                        (params.size.0 as f64 / params.size.1 as f64, params.fps)
-                    };
+                    let fps = stab.params.read().fps;
 
                     let fps_ticks = inst.stored.read().media_fps_ticks;
                     let fps_ticks = if fps_ticks == 0 { ticks_per_sec as f64 / fps } else { fps_ticks as f64 };
