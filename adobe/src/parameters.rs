@@ -96,7 +96,9 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             }).unwrap();
         }
         ParameterType::Slider { id, label, min, max, default, .. } => {
-            params.add_with_flags(Params::from_str(id).unwrap(), label, ae::FloatSliderDef::setup(|f| {
+            let p = Params::from_str(id).unwrap();
+            if p == Params::VideoSpeed { return; }
+            params.add_with_flags(p, label, ae::FloatSliderDef::setup(|f| {
                 f.set_valid_min(min as f32);
                 f.set_slider_min(min as f32);
                 f.set_valid_max(max as f32);

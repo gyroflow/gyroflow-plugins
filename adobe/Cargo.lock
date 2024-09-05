@@ -26,7 +26,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 [[package]]
 name = "after-effects"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
+source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -49,7 +49,7 @@ dependencies = [
 [[package]]
 name = "after-effects-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
+source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
 dependencies = [
  "bindgen 0.70.1",
 ]
@@ -646,9 +646,9 @@ checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 
 [[package]]
 name = "cc"
-version = "1.1.15"
+version = "1.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57b6a275aa2903740dc87da01c62040406b8812552e97129a63ea8850a17c6e6"
+checksum = "e9d013ecb737093c0e86b151a7b837993cf9ec6c502946cfb44bedc392421e0b"
 dependencies = [
  "shlex",
 ]
@@ -2619,7 +2619,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.0"
-source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
+source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2685,7 +2685,7 @@ dependencies = [
 [[package]]
 name = "premiere"
 version = "0.0.1"
-source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
+source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
 dependencies = [
  "base64",
  "bincode",
@@ -2700,7 +2700,7 @@ dependencies = [
 [[package]]
 name = "premiere-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#a8a2f6482c096c2f19a2f13f9146af724b44220b"
+source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
 dependencies = [
  "bindgen 0.69.4",
 ]
@@ -3164,9 +3164,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.127"
+version = "1.0.128"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8043c06d9f82bd7271361ed64f415fe5e12a77fdb52e573e7f06a516dea329ad"
+checksum = "6ff5456707a1de34e7e37f2a6fd3d3f808c318259cbd01ab6377795054b483d8"
 dependencies = [
  "indexmap",
  "itoa",

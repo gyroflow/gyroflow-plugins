@@ -103,14 +103,13 @@ impl GyroflowPluginBase {
                 win_dbg_logger::init();
 
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
-                oslog::OsLogger::new("xyz.gyroflow")
+                let _ = oslog::OsLogger::new("xyz.gyroflow")
                     .category_level_filter("ofx", log::LevelFilter::Error)
                     .category_level_filter("naga", log::LevelFilter::Error)
                     .category_level_filter("wgpu", log::LevelFilter::Error)
                     .category_level_filter("akaze", log::LevelFilter::Error)
                     .category_level_filter("mp4parse", log::LevelFilter::Error)
-                    .init()
-                    .unwrap();
+                    .init();
 
                 log::set_max_level(log::LevelFilter::Debug);
 
