@@ -194,8 +194,8 @@ impl GyroflowPluginBase {
     }
 
     pub fn get_gyroflow_location() -> Option<String> {
-        match gyroflow_core::util::get_setting("exeLocation") {
-            Some(v) if !v.is_empty() => {
+        match gyroflow_core::settings::try_get("exeLocation") {
+            Some(serde_json::Value::String(v)) if !v.is_empty() => {
                 Some(v)
             },
             _ => {
@@ -851,17 +851,9 @@ impl GyroflowPluginBaseInstance {
             GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
         }
         if param == Params::OpenRecentProject {
-            let last_project = /*if cfg!(target_os = "macos") {
-                let mut cmd = std::process::Command::new("defaults");
-                cmd.args(&["read", "com.gyroflow-xyz.Gyroflow", "lastProject"]);
-                cmd.output().ok().map(|x| String::from_utf8_lossy(&x.stdout).to_string())
-            } else */{
-                gyroflow_core::util::get_setting("lastProject")
-            };
-            if let Some(v) = last_project {
-                if !v.is_empty() {
-                    params.set_string(Params::ProjectPath, &v)?;
-                }
+            let last_project = gyroflow_core::settings::get_str("lastProject", "");
+            if !last_project.is_empty() {
+                params.set_string(Params::ProjectPath, &last_project)?;
             }
         }
         if param == Params::ProjectPath || param == Params::ReloadProject || param == Params::DontDrawOutside {
