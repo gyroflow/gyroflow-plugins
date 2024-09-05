@@ -1434,7 +1434,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=4345cc6#4345cc6abe8747c3cbf466b18cb4bf180fa1ca55"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=ce45aa6#ce45aa6d035cd4c1ec7d4376ff9d2276db683f4a"
 dependencies = [
  "ahrs",
  "akaze",
@@ -3151,7 +3151,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=4345cc6#4345cc6abe8747c3cbf466b18cb4bf180fa1ca55"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=ce45aa6#ce45aa6d035cd4c1ec7d4376ff9d2276db683f4a"
 dependencies = [
  "spirv-std",
 ]

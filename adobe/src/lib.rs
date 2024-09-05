@@ -194,7 +194,7 @@ impl Instance {
                             #[cfg(any(target_os = "macos", target_os = "ios"))]
                             ae::GpuFramework::Metal => (
                                 BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
-                                BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
+                                BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: std::ptr::null_mut() },
                                 true
                             ),
                             ae::GpuFramework::OpenCl => (
@@ -581,10 +581,10 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                     let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
 
-                    let (w, h) = ((params.get_f64(Params::OutputWidth).unwrap() * sx).round() as i32, (params.get_f64(Params::OutputHeight).unwrap() * sy).round() as i32);
-                    let (x, y) = ((in_result.ref_width - w) / 2, (in_result.ref_height - h) / 2);
+                    let (w, h) = (params.get_f64(Params::OutputWidth).unwrap(), params.get_f64(Params::OutputHeight).unwrap());
+                    let (x, y) = ((in_result.ref_width as f64 - w) / 2.0, (in_result.ref_height  as f64- h) / 2.0);
 
-                    extra.set_result_rect(ae::Rect { left: x, top: y, right: x + w, bottom: y + h });
+                    extra.set_result_rect(ae::Rect { left: (x * sx).round() as _, top: (y * sy).round() as _, right: ((x + w) * sx).round() as _, bottom: ((y + h) * sy).round() as _ });
                     extra.set_max_result_rect(extra.result_rect());
                     extra.set_returns_extra_pixels(true);
 
@@ -782,8 +782,8 @@ impl pr::GpuFilter for PremiereGPU {
                         ),
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
                         pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_Metal => (
-                            BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: filter.gpu_info.outCommandQueueHandle as *mut metal::MTLCommandQueue },
-                            BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: filter.gpu_info.outCommandQueueHandle as *mut metal::MTLCommandQueue },
+                            BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: filter.gpu_info.outCommandQueueHandle as *mut _ },
+                            BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: std::ptr::null_mut() },
                             true
                         ),
                         pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_OpenCL => (
