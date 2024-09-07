@@ -613,7 +613,7 @@ impl Execute for GyroflowPlugin {
                 }
 
                 let opencl_devices = gyroflow_plugin_base::opencl::OclWrapper::list_devices();
-                let wgpu_devices = gyroflow_plugin_base::wgpu::WgpuWrapper::list_devices();
+                let wgpu_devices = std::thread::spawn(|| gyroflow_plugin_base::wgpu::WgpuWrapper::list_devices()).join().unwrap();
                 if !opencl_devices.is_empty() {
                     let _ = effect_properties.set_opencl_render_supported("true");
                     let _ = effect_properties.set_opengl_render_supported("true");
