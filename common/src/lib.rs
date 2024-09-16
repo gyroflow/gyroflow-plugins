@@ -401,7 +401,7 @@ impl Default for GyroflowPluginBaseInstance {
             num_frames:                     0,
             fps:                            0.0,
             has_motion:                     false,
-            reload_values_from_project:     false,
+            reload_values_from_project:     true,
             ever_changed:                   false,
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
@@ -810,6 +810,7 @@ impl GyroflowPluginBaseInstance {
             let new_path = Self::browse(&params.get_string(Params::ProjectPath)?);
             if !new_path.is_empty() {
                 params.set_string(Params::ProjectPath, &new_path)?;
+                self.reload_values_from_project = true;
             }
         }
         if param == Params::LoadLens {

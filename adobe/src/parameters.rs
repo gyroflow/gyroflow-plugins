@@ -138,6 +138,7 @@ pub fn param_index_for_type(type_: Params, init: Option<std::collections::HashMa
 
 pub enum ParamsInner<'a, 'b> where 'b: 'a {
     Ae(&'a mut ae::Parameters<'b, Params>),
+    AeRO(&'a ae::Parameters<'b, Params>),
     Premiere((&'a pr::GpuFilterData, pr::RenderParams))
 }
 
@@ -147,17 +148,17 @@ pub struct ParamHandler<'a, 'b> where 'b: 'a {
 }
 impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     fn get_string(&self, p: Params) -> PluginResult<String> {
-        if p == Params::ProjectPath && !self.stored.read().project_path.is_empty() {
-            return Ok(self.stored.read().project_path.clone());
-        }
-        if p == Params::Status {
-            return Ok(self.stored.read().status.clone());
-        }
         if p == Params::InstanceId {
             return Ok(self.stored.read().instance_id.clone());
         }
+        if let Some(v) = self.stored.read().pending_params_str.get(&p) {
+            return Ok(v.clone());
+        }
         match &self.inner {
             ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_arbitrary()?.value::<ArbString>()?.get().to_string())
+            }
+            ParamsInner::AeRO(x) => {
                 Ok(x.get(p)?.as_arbitrary()?.value::<ArbString>()?.get().to_string())
             }
             ParamsInner::Premiere((filter, render_params)) => {
@@ -167,15 +168,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> {
         log::info!("set_string: {p:?} = {v}");
-        if p == Params::ProjectPath && matches!(self.inner, ParamsInner::Ae(_)) {
-            // let arbitrary data take over
-            self.stored.write().project_path.clear();
-        }
-        if p == Params::Status {
-            self.stored.write().status = v.to_owned();
-        }
         if p == Params::InstanceId {
             self.stored.write().instance_id = v.to_owned();
+        }
+        if self.stored.read().any_pending_params {
+            self.stored.write().pending_params_str.insert(p, v.to_owned());
         }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
@@ -186,6 +183,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 p.set_value_changed();
                 // p.update_param_ui()?;
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
 
@@ -195,8 +193,14 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         if p == Params::Status {
             return Ok(self.get_string(p)? == "OK");
         }
+        if let Some(v) = self.stored.read().pending_params_bool.get(&p) {
+            return Ok(*v);
+        }
         match &self.inner {
             ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_checkbox()?.value())
+            }
+            ParamsInner::AeRO(x) => {
                 Ok(x.get(p)?.as_checkbox()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
@@ -211,15 +215,22 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         if p == Params::Status {
             return Ok(());
         }
+        if self.stored.read().any_pending_params {
+            self.stored.write().pending_params_bool.insert(p, v);
+        }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_checkbox_mut()?.set_value(v);
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
     }
     fn get_f64(&self, p: Params) -> PluginResult<f64> {
+        if let Some(v) = self.stored.read().pending_params_f64.get(&p) {
+            return Ok(*v);
+        }
         if p == Params::OutputWidth || p == Params::OutputHeight {
             let stored = self.stored.read();
             if stored.sequence_size != (0, 0) {
@@ -228,6 +239,9 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
         match &self.inner {
             ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_float_slider()?.value())
+            }
+            ParamsInner::AeRO(x) => {
                 Ok(x.get(p)?.as_float_slider()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
@@ -239,10 +253,14 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
     }
     fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> {
+        if self.stored.read().any_pending_params {
+            self.stored.write().pending_params_f64.insert(p, v);
+        }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
@@ -262,6 +280,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 }
                 x.update_param_ui()?;
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
 
@@ -278,6 +297,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 x.set_flag(ae::ParamFlag::TWIRLY, true);
                 x.update_param_ui()?;
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())
@@ -285,6 +305,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     fn get_f64_at_time(&self, p: Params, time: TimeType) -> PluginResult<f64> {
         match &self.inner {
             ParamsInner::Ae(x) => {
+                let in_data = x.in_data();
+                let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
+                Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_float_slider()?.value())
+            }
+            ParamsInner::AeRO(x) => {
                 let in_data = x.in_data();
                 let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
                 Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_float_slider()?.value())
@@ -300,6 +325,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     fn get_bool_at_time(&self, p: Params, time: TimeType) -> PluginResult<bool> {
         match &self.inner {
             ParamsInner::Ae(x) => {
+                let in_data = x.in_data();
+                let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
+                Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_checkbox()?.value())
+            }
+            ParamsInner::AeRO(x) => {
                 let in_data = x.in_data();
                 let ae_time = ae_time_from_timetype(time, in_data.time_step(), in_data.time_scale());
                 Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_checkbox()?.value())
@@ -327,6 +357,15 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                     true
                 }
             }
+            ParamsInner::AeRO(x) => {
+                if let Ok(keyframe_count) = x.get(p).and_then(|x| x.keyframe_count()) {
+                    keyframe_count > 0
+                } else {
+                    // I didn't find any way to check if a param is keyframed in Premiere, so let's assume they are all keyframed
+                    // TODO
+                    true
+                }
+            }
             ParamsInner::Premiere((filter, _render_params)) => {
                 filter.next_keyframe_time(param_index_for_type(p, None).unwrap(), -1) != Err(pr::Error::NoKeyframeAfterInTime)
             }
@@ -341,6 +380,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
             }
+            ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
         }
         Ok(())

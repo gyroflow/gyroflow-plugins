@@ -64,16 +64,7 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
 
         // Draw status
         if event.param_index() == params.index(Params::Status).unwrap_or_default() {
-            let status = {
-                let _self = inst.get().unwrap();
-                let x = if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
-                    let stored = _self.stored.read();
-                    stored.status.clone()
-                } else {
-                    String::new()
-                };
-                x
-            };
+            let status = get_str(params, inst, Params::Status)?;
 
             if !status.is_empty() {
                 let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
@@ -81,6 +72,8 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
                     ae::drawbot::ColorRgba { red: 0.22, green: 0.86, blue: 0.1, alpha: 1.0 } // Green
                 } else if status == "Calculating..." {
                     ae::drawbot::ColorRgba { red: 0.92, green: 0.57, blue: 0.08, alpha: 1.0 } // Yellow
+                } else if status == "---" {
+                    ae::drawbot::ColorRgba { red: 0.8, green: 0.8, blue: 0.8, alpha: 1.0 } // White
                 } else {
                     ae::drawbot::ColorRgba { red: 0.95, green: 0.15, blue: 0.15, alpha: 1.0 } // Red
                 };
@@ -96,13 +89,7 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
 
         // Draw project path
         if event.param_index() == params.index(Params::ProjectPath).unwrap_or_default() {
-            let mut path = params.get(Params::ProjectPath)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
-            if path.is_empty() {
-                let _self = inst.get().unwrap();
-                if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
-                    path = _self.stored.read().project_path.clone();
-                };
-            }
+            let path = get_str(params, inst, Params::ProjectPath)?;
 
             let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
             let string_brush = supplier.new_brush(&ae::drawbot::ColorRgba { red: 0.8, green: 0.8, blue: 0.8, alpha: 1.0 })?;
@@ -132,4 +119,17 @@ pub fn acquire_background_color() -> ae::drawbot::ColorRgba {
         blue:  bg.blue  as f32 * INV_SIXTY_FIVE_K,
         alpha: 1.0,
     }
+}
+
+fn get_str(params: &ae::Parameters<Params>, inst: &mut CrossThreadInstance, key: Params) -> Result<String, ae::Error> {
+    let mut value = params.get(key)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
+    if value.is_empty() {
+        let _self = inst.get().unwrap();
+        if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
+            if let Some(v) = _self.stored.read().pending_params_str.get(&key) {
+                value = v.clone();
+            }
+        };
+    }
+    Ok(value)
 }

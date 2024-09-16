@@ -32,26 +32,38 @@ struct Plugin {
     gyroflow: GyroflowPluginBase
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+struct RenderData {
+    stab: Arc<StabilizationManager>,
+    stored: Arc<RwLock<StoredParams>>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredParams {
     pub version: u8,
     pub media_file_path: String,
-    pub project_path: String,
     pub instance_id: String,
-    pub status: String,
     pub sequence_size: (usize, usize),
     pub media_fps_ticks: i64,
+    pub any_pending_params: bool,
+    pub pending_params_f64: HashMap<Params, f64>,
+    pub pending_params_bool: HashMap<Params, bool>,
+    pub pending_params_str: HashMap<Params, String>,
 }
 impl Default for StoredParams {
     fn default() -> Self {
+        let instance_id = format!("{}", fastrand::u64(..));
         Self {
             version: 1,
             media_file_path: String::new(),
-            project_path: String::new(),
-            instance_id: format!("{}", fastrand::u64(..)),
-            status: "Project not loaded".to_owned(),
+            instance_id: instance_id.clone(),
             sequence_size: (0, 0),
             media_fps_ticks: 0,
+            any_pending_params: true,
+            pending_params_f64: HashMap::new(),
+            pending_params_bool: HashMap::new(),
+            pending_params_str: HashMap::from([
+                (Params::Status, String::from("---")),
+            ]),
         }
     }
 }
@@ -60,7 +72,6 @@ impl Default for StoredParams {
 struct Instance {
     #[serde(serialize_with="ser_stored", deserialize_with="de_stored")]
     stored: Arc<RwLock<StoredParams>>,
-    #[serde(skip)]
     gyroflow: Option<GyroflowPluginBaseInstance>
 }
 ae::define_cross_thread_type!(Instance);
@@ -76,7 +87,7 @@ impl CrossThreadInstance {
             num_frames:                     0,
             fps:                            0.0,
             has_motion:                     false,
-            reload_values_from_project:     false,
+            reload_values_from_project:     true,
             ever_changed:                   false,
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
@@ -113,7 +124,7 @@ impl Instance {
     fn smart_render(plugin: &PluginState, extra: SmartRenderExtra, is_gpu: bool) -> Result<(), ae::Error> {
         let in_data = plugin.in_data;
         let cb = extra.callbacks();
-        let stab = extra.pre_render_data::<Arc<StabilizationManager>>();
+        let stab = extra.pre_render_data::<RenderData>();
         if stab.is_none() {
             log::error!("empty stab data in smart_render");
             return Ok(());
@@ -127,6 +138,7 @@ impl Instance {
                     return Err(Error::UnrecogizedParameterType);
                 }
                 if let Some(stab) = stab {
+                    let RenderData { stab, stored } = stab;
                     //log::info!("pixel_format: {pixel_format:?}, is_gpu: {is_gpu}, arc count: {}", Arc::strong_count(&stab));
                     //log::info!("smart_render: {}, size: {:?}", in_data.current_timestamp(), stab.params.read().size);
                     log::info!("smart_render: timestamp: {} time: {}, time_step: {}, time_scale: {}, frame: {}, local_frame: {}",
@@ -212,7 +224,10 @@ impl Instance {
                         )
                     };
 
-                    let input_rotation = -plugin.params.get(Params::InputRotation)?.as_float_slider()?.value() as f32;
+                    let input_rotation = {
+                        let params = ParamHandler { inner: ParamsInner::AeRO(plugin.params), stored: stored.clone() };
+                        -params.get_f64(Params::InputRotation).unwrap_or_default() as f32
+                    };
 
                     let mut buffers = Buffers {
                         input:  BufferDescription { size: src_size,  rect: None, data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
@@ -243,7 +258,8 @@ impl Instance {
     fn cpu_render(in_data: ae::InData, src: &Layer, dst: &mut Layer) -> Result<(), ae::Error> {
         log::info!("render: {}", in_data.current_timestamp());
 
-        if let Some(stab) = in_data.frame_data::<Arc<StabilizationManager>>() {
+        if let Some(stab) = in_data.frame_data::<RenderData>() {
+            let RenderData { stab, .. } = stab;
             let timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
 
             let org_ratio = {
@@ -388,6 +404,27 @@ impl AdobePluginGlobal for Plugin {
 }
 impl CrossThreadInstance {
     fn user_changed_param(&mut self, plugin: &mut PluginState, param: Params) -> Result<(), ae::Error> {
+        {
+            let stored = {
+                let _self = self.get().unwrap();
+                let mut _self = _self.read();
+                _self.stored.clone()
+            };
+            let (pending_f64s, pending_bools, pending_strings) = {
+                let mut stored = stored.write();
+                stored.any_pending_params = false;
+                (
+                    stored.pending_params_f64.drain().collect::<HashMap<Params, f64>>(),
+                    stored.pending_params_bool.drain().collect::<HashMap<Params, bool>>(),
+                    stored.pending_params_str.drain().collect::<HashMap<Params, String>>()
+                )
+            };
+            let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
+            for (k, v) in &pending_f64s { let _ = params.set_f64(*k, *v); }
+            for (k, v) in &pending_bools { let _ = params.set_bool(*k, *v); }
+            for (k, v) in &pending_strings { let _ = params.set_string(*k, v); }
+        }
+
         match param {
             Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
             Params::HorizonLockAmount | Params::HorizonLockRoll |
@@ -421,7 +458,6 @@ impl CrossThreadInstance {
         let mut _self = _self.write();
         let stored = _self.stored.clone();
         if let Some(inst) = _self.gyroflow.as_mut() {
-
             if param == Params::OutputSizeToTimeline && plugin.in_data.is_after_effects() {
                 let _ = (|| -> Result<(), ae::Error> {
                     let comp_size = plugin.in_data.effect()
@@ -507,28 +543,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                 plugin.out_data.set_out_flag(ae::OutFlags::RefreshUi, true);
                 plugin.out_data.set_force_rerender();
             }
-            ae::Command::UpdateParamsUi => {
-                //let _self = self.get().unwrap();
-                //let mut _self = _self.write();
-                //let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
-                //let _ = _self.stab_manager(&mut params, plugin.global, 8, ae::Rect::empty(), ae::Rect::empty());
-
-                //let _self = self.get().unwrap();
-                //let mut _self = _self.write();
-                //if !_self.stored.read().project_path.is_empty() {
-                //    log::info!("project path2: {}", _self.stored.read().project_path);
-                //    let mut params = ParamHandler { inner: plugin.params, stored: _self.stored.clone() };
-                //    params.set_string(Params::ProjectPath, &_self.stored.read().project_path).unwrap();
-                //    _self.stored.write().project_path.clear();
-                //}
-
-                //let mut params = ParamHandler { inner: plugin.params };
-
-                //let has_motion = _self.gyroflow.has_motion;
-                //_self.gyroflow.update_loaded_state(&mut params, has_motion);
-                //plugin.out_data.set_out_flag(ae::OutFlags::RefreshUi, true);
-                //plugin.out_data.set_force_rerender();
-            }
+            ae::Command::UpdateParamsUi => { }
             ae::Command::SequenceSetup => {
                 let _self = self.get().unwrap();
                 let _self = _self.read();
@@ -537,13 +552,25 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                 let _ = (|| -> Result<(), ae::Error> {
                     let layer = in_data.effect().layer()?;
-                    let footage_path = layer
-                                      .source_item()?
-                                      .main_footage()?
-                                      .path(0, 0)?;
+                    let item = layer.source_item()?;
+                    let mut footage_path = String::new();
+                    if item.item_type()? == ae::aegp::ItemType::Footage {
+                        footage_path = item.main_footage()?.path(0, 0)?;
+                    } else if item.item_type()? == ae::aegp::ItemType::Comp {
+                        let comp = item.composition()?;
+                        for i in 0..comp.num_layers()? {
+                            let item = comp.layer_by_index(i)?.source_item()?;
+                            if item.item_type()? == ae::aegp::ItemType::Footage {
+                                footage_path = item.main_footage()?.path(0, 0)?;
+                                break;
+                            }
+                        }
+                    }
                     if !footage_path.is_empty() {
-                        stored.project_path = GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned());
+                        stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned()));
                         stored.media_file_path = footage_path;
+                    } else {
+                        plugin.out_data.set_return_msg("Unable to find the footage path.\nUse the \"Browse\" button and load the project file or a video file.");
                     }
 
                     let comp_dimensions = layer
@@ -576,6 +603,7 @@ impl AdobePluginInstance for CrossThreadInstance {
 
                     let _self = self.get().unwrap();
                     let mut _self = _self.write();
+                    let stored = _self.stored.clone();
 
                     let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: _self.stored.clone() };
 
@@ -589,16 +617,18 @@ impl AdobePluginInstance for CrossThreadInstance {
                     extra.set_returns_extra_pixels(true);
 
                     if let Some(stab) = _self.stab_manager(&mut params, plugin.global, extra.result_rect()) {
-                        log::info!("setting pre-render extra: {:?}, in: {:?}", extra.result_rect(), in_data.extent_hint());
-                        extra.set_pre_render_data::<Arc<StabilizationManager>>(stab);
+                        extra.set_pre_render_data::<RenderData>(RenderData { stab, stored });
                     } else {
-                        return Err(ae::Error::Generic);
+                        extra.set_result_rect(ae::Rect::empty());
+                        extra.set_max_result_rect(extra.result_rect());
+                        return Err(ae::Error::InvalidParms);
                     }
                 }
             }
             ae::Command::FrameSetup { out_layer, .. } => {
                 let _self = self.get().unwrap();
                 let mut _self = _self.write();
+                let stored = _self.stored.clone();
 
                 let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: _self.stored.clone() };
 
@@ -609,13 +639,13 @@ impl AdobePluginInstance for CrossThreadInstance {
                 plugin.out_data.set_height(nh as _);
 
                 if let Some(stab) = _self.stab_manager(&mut params, plugin.global, out_layer.extent_hint()) {
-                    plugin.out_data.set_frame_data::<Arc<StabilizationManager>>(stab);
+                    plugin.out_data.set_frame_data::<RenderData>(RenderData { stab, stored })
                 } else {
                     log::error!("frame_setup: no stab manager");
                 }
             }
             ae::Command::FrameSetdown => {
-                in_data.destroy_frame_data::<Arc<StabilizationManager>>();
+                in_data.destroy_frame_data::<RenderData>();
             }
             ae::Command::SmartRender { extra } => {
                 Instance::smart_render(&plugin, extra, false)?;
@@ -700,7 +730,7 @@ impl pr::GpuFilter for PremiereGPU {
                 if inst.stored.read().media_file_path.is_empty() {
                     if let Ok(pr::PropertyData::String(media_path)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
                         let mut stored = inst.stored.write();
-                        stored.project_path = GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned());
+                        stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned()));
                         stored.media_file_path = media_path;
                         stored.sequence_size = (render_params.render_width() as _, render_params.render_height() as _);
                     }
