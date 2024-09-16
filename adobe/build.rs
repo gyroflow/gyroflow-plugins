@@ -32,7 +32,7 @@ fn main() {
 			OutFlags::IDoDialog |
 			OutFlags::PixIndependent |
 			OutFlags::DeepColorAware |
-			OutFlags::SendUpdateParamsUI |
+			//OutFlags::SendUpdateParamsUI |
             OutFlags::IExpandBuffer |
 			OutFlags::NonParamVary
 		),

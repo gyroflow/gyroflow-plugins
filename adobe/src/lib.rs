@@ -5,6 +5,7 @@ use premiere as pr;
 
 use gyroflow_plugin_base::*;
 use gyroflow_plugin_base::gyroflow_core::GyroflowCoreError;
+use std::collections::HashSet;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -44,10 +45,10 @@ pub struct StoredParams {
     pub instance_id: String,
     pub sequence_size: (usize, usize),
     pub media_fps_ticks: i64,
-    pub any_pending_params: bool,
     pub pending_params_f64: HashMap<Params, f64>,
     pub pending_params_bool: HashMap<Params, bool>,
     pub pending_params_str: HashMap<Params, String>,
+    pub premiere_keyframed_params: HashSet<Params>,
 }
 impl Default for StoredParams {
     fn default() -> Self {
@@ -58,12 +59,12 @@ impl Default for StoredParams {
             instance_id: instance_id.clone(),
             sequence_size: (0, 0),
             media_fps_ticks: 0,
-            any_pending_params: true,
             pending_params_f64: HashMap::new(),
             pending_params_bool: HashMap::new(),
             pending_params_str: HashMap::from([
                 (Params::Status, String::from("---")),
             ]),
+            premiere_keyframed_params: HashSet::new(),
         }
     }
 }
@@ -233,7 +234,6 @@ impl Instance {
                         input:  BufferDescription { size: src_size,  rect: None, data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
                         output: BufferDescription { size: dest_size, rect: None, data: buffers.1, rotation: None, texture_copy: buffers.2 }
                     };
-                    log::info!("pixel_format: {pixel_format:?}");
                     let result = match pixel_format {
                         ae::PixelFormat::GpuBgra128 |
                         ae::PixelFormat::Argb128    => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
@@ -404,27 +404,6 @@ impl AdobePluginGlobal for Plugin {
 }
 impl CrossThreadInstance {
     fn user_changed_param(&mut self, plugin: &mut PluginState, param: Params) -> Result<(), ae::Error> {
-        {
-            let stored = {
-                let _self = self.get().unwrap();
-                let mut _self = _self.read();
-                _self.stored.clone()
-            };
-            let (pending_f64s, pending_bools, pending_strings) = {
-                let mut stored = stored.write();
-                stored.any_pending_params = false;
-                (
-                    stored.pending_params_f64.drain().collect::<HashMap<Params, f64>>(),
-                    stored.pending_params_bool.drain().collect::<HashMap<Params, bool>>(),
-                    stored.pending_params_str.drain().collect::<HashMap<Params, String>>()
-                )
-            };
-            let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
-            for (k, v) in &pending_f64s { let _ = params.set_f64(*k, *v); }
-            for (k, v) in &pending_bools { let _ = params.set_bool(*k, *v); }
-            for (k, v) in &pending_strings { let _ = params.set_string(*k, v); }
-        }
-
         match param {
             Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
             Params::HorizonLockAmount | Params::HorizonLockRoll |
@@ -453,6 +432,30 @@ impl CrossThreadInstance {
             }
             _ => { }
         }
+        {
+            let stored = {
+                let _self = self.get().unwrap();
+                let mut _self = _self.read();
+                _self.stored.clone()
+            };
+            let (pending_f64s, pending_bools, pending_strings) = {
+                let mut stored = stored.write();
+                stored.pending_params_f64.remove(&param);
+                stored.pending_params_bool.remove(&param);
+                stored.pending_params_str.remove(&param);
+
+                (
+                    stored.pending_params_f64.clone(),
+                    stored.pending_params_bool.clone(),
+                    stored.pending_params_str.clone()
+                )
+            };
+            let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
+            for (k, v) in &pending_f64s    { if *k != param { let _ = params.set_f64(*k, *v); } }
+            for (k, v) in &pending_bools   { if *k != param { let _ = params.set_bool(*k, *v); } }
+            for (k, v) in &pending_strings { if *k != param { let _ = params.set_string(*k, v); } }
+        }
+
         let _self = self.get().unwrap();
 
         let mut _self = _self.write();
@@ -540,7 +543,7 @@ impl AdobePluginInstance for CrossThreadInstance {
             ae::Command::UserChangedParam { param_index } => {
                 self.user_changed_param(plugin, plugin.params.type_at(param_index))?;
 
-                plugin.out_data.set_out_flag(ae::OutFlags::RefreshUi, true);
+                // plugin.out_data.set_out_flag(ae::OutFlags::RefreshUi, true);
                 plugin.out_data.set_force_rerender();
             }
             ae::Command::UpdateParamsUi => { }
@@ -573,10 +576,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                         plugin.out_data.set_return_msg("Unable to find the footage path.\nUse the \"Browse\" button and load the project file or a video file.");
                     }
 
-                    let comp_dimensions = layer
-                                         .parent_comp()?
-                                         .item()?
-                                         .dimensions()?;
+                    let comp_dimensions = layer.parent_comp()?.item()?.dimensions()?;
                     stored.sequence_size = (comp_dimensions.0 as _, comp_dimensions.1 as _);
                     Ok(())
                 })();
@@ -610,13 +610,15 @@ impl AdobePluginInstance for CrossThreadInstance {
                     let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
 
                     let (w, h) = (params.get_f64(Params::OutputWidth).unwrap(), params.get_f64(Params::OutputHeight).unwrap());
-                    let (x, y) = ((in_result.ref_width as f64 - w) / 2.0, (in_result.ref_height  as f64- h) / 2.0);
+                    let (x, y) = ((in_result.ref_width as f64 - w) / 2.0, (in_result.ref_height  as f64 - h) / 2.0);
 
                     extra.set_result_rect(ae::Rect { left: (x * sx).round() as _, top: (y * sy).round() as _, right: ((x + w) * sx).round() as _, bottom: ((y + h) * sy).round() as _ });
                     extra.set_max_result_rect(extra.result_rect());
                     extra.set_returns_extra_pixels(true);
 
-                    if let Some(stab) = _self.stab_manager(&mut params, plugin.global, extra.result_rect()) {
+                    let full_rect = ae::Rect { left: 0, top: 0, right: w as _, bottom: h as _ };
+
+                    if let Some(stab) = _self.stab_manager(&mut params, plugin.global, full_rect) {
                         extra.set_pre_render_data::<RenderData>(RenderData { stab, stored });
                     } else {
                         extra.set_result_rect(ae::Rect::empty());
@@ -631,6 +633,10 @@ impl AdobePluginInstance for CrossThreadInstance {
                 let stored = _self.stored.clone();
 
                 let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: _self.stored.clone() };
+
+                if params.get_string(Params::ProjectPath).unwrap().is_empty() {
+                    return Ok(());
+                }
 
                 // Output buffer resizing may only occur during FrameSetup.
                 let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
@@ -727,6 +733,19 @@ impl pr::GpuFilter for PremiereGPU {
                 let clip_node = filter.video_segment_suite.acquire_operator_owner_node_id(filter.node_id())?;
                 let media_node = filter.video_segment_suite.acquire_input_node_id(clip_node, 0)?;
 
+                {
+                    let keyframe_test = [ Params::Fov, Params::Smoothness, Params::ZoomLimit, Params::LensCorrectionStrength,
+                                          Params::HorizonLockAmount, Params::HorizonLockRoll, Params::VideoSpeed, Params::Rotation,
+                                          Params::AdditionalYaw, Params::AdditionalPitch ];
+                    let mut stored = inst.stored.write();
+                    stored.premiere_keyframed_params.clear();
+                    for kf in keyframe_test {
+                        if filter.next_keyframe_time(param_index_for_type(kf, None).unwrap(), -1) != Err(pr::Error::NoKeyframeAfterInTime) {
+                            stored.premiere_keyframed_params.insert(kf);
+                        }
+                    }
+                }
+
                 if inst.stored.read().media_file_path.is_empty() {
                     if let Ok(pr::PropertyData::String(media_path)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
                         let mut stored = inst.stored.write();
@@ -759,6 +778,9 @@ impl pr::GpuFilter for PremiereGPU {
                 let mut params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
 
                 let path = params.get_string(Params::ProjectPath).unwrap();
+                if path.is_empty() {
+                    return Ok(());
+                }
                 let instance_id = params.get_string(Params::InstanceId).unwrap();
                 let disable_stretch = params.get_bool(Params::DisableStretch).unwrap();
 
