@@ -32,6 +32,22 @@ deploy:
     cargo build --profile deploy --target x86_64-apple-darwin
     cargo build --profile deploy --target aarch64-apple-darwin
 
+    version=$(grep '^version' Cargo.toml | sed -E 's/version = "(.+)".*/\1/')
+    version_short=$(echo $version | sed -E 's/-.*//')
+
+    if [[ "$GITHUB_REF" == *"tags"* ]]; then
+        version="${version}.0"
+        version_short="${version_short}.0"
+    else
+        if [[ -z "$GITHUB_RUN_NUMBER" ]]; then
+            version="${version}-dev"
+            version_short="${version_short}.1"
+        else
+            version="${version}.${GITHUB_RUN_NUMBER}"
+            version_short="${version_short}.${GITHUB_RUN_NUMBER}"
+        fi
+    fi
+
     cd "{{TargetDir}}"
     rm -Rf gyroflow-ofx-macos Gyroflow-OpenFX-macos.dmg
     mkdir -p gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS
@@ -39,6 +55,9 @@ deploy:
     lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_ofx.dylib -create -output gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
     cp "{{justfile_directory()}}/res/Info.plist" gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/
     cp "{{justfile_directory()}}/../LICENSE"     gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/
+
+    /usr/libexec/PlistBuddy -c "add CFBundleVersion string $version_short" gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/Info.plist
+    /usr/libexec/PlistBuddy -c "add CFBundleShortVersionString string $version" gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/Info.plist
 
     codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib
     mv gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macos/Gyroflow.ofx.bundle/Contents/MacOS/Gyroflow.ofx

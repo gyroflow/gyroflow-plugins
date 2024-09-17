@@ -26,7 +26,7 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 [[package]]
 name = "after-effects"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
+source = "git+https://github.com/AdrianEddy/after-effects.git#83258e2e82d0a9cad22b28e99912dc832786299b"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -49,7 +49,7 @@ dependencies = [
 [[package]]
 name = "after-effects-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
+source = "git+https://github.com/AdrianEddy/after-effects.git#83258e2e82d0a9cad22b28e99912dc832786299b"
 dependencies = [
  "bindgen 0.70.1",
 ]
@@ -1642,7 +1642,7 @@ dependencies = [
 
 [[package]]
 name = "gyroflow_adobe"
-version = "0.0.1"
+version = "2.0.0-alpha"
 dependencies = [
  "after-effects",
  "bincode",
@@ -2483,9 +2483,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.20.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33ea5043e58958ee56f3e15a90aee535795cd7dfd319846288d93c5b57d85cbe"
+checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "ordered-stream"
@@ -2585,7 +2585,7 @@ dependencies = [
 [[package]]
 name = "pipl"
 version = "0.1.0"
-source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
+source = "git+https://github.com/AdrianEddy/after-effects.git#83258e2e82d0a9cad22b28e99912dc832786299b"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2651,7 +2651,7 @@ dependencies = [
 [[package]]
 name = "premiere"
 version = "0.0.1"
-source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
+source = "git+https://github.com/AdrianEddy/after-effects.git#83258e2e82d0a9cad22b28e99912dc832786299b"
 dependencies = [
  "base64",
  "bincode",
@@ -2666,7 +2666,7 @@ dependencies = [
 [[package]]
 name = "premiere-sys"
 version = "0.1.6"
-source = "git+https://github.com/AdrianEddy/after-effects.git#4a7b2e25861393acf53101adb874eaee4c407910"
+source = "git+https://github.com/AdrianEddy/after-effects.git#83258e2e82d0a9cad22b28e99912dc832786299b"
 dependencies = [
  "bindgen 0.69.4",
 ]
@@ -3512,9 +3512,9 @@ checksum = "0dd7358ecb8fc2f8d014bf86f6f638ce72ba252a2c3a2572f2a795f1d23efb41"
 
 [[package]]
 name = "toml_edit"
-version = "0.22.20"
+version = "0.22.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "583c44c02ad26b0c3f3066fe629275e50627026c51ac2e595cca4c230ce1ce1d"
+checksum = "3b072cee73c449a636ffd6f32bd8de3a9f7119139aff882f44943ce2986dc5cf"
 dependencies = [
  "indexmap",
  "toml_datetime",

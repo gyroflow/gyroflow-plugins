@@ -5,6 +5,20 @@ const PF_PLUG_IN_VERSION: u16 = 13;
 const PF_PLUG_IN_SUBVERS: u16 = 28;
 
 fn main() {
+    #[cfg(target_os = "windows")] {
+        let mut version = std::env::var("CARGO_PKG_VERSION").unwrap();
+
+        if std::env::var("GITHUB_REF").map(|x| x.contains("tags")).unwrap_or_default() {
+            version.push_str(".0");
+        } else if let Ok(github_run_number) = std::env::var("GITHUB_RUN_NUMBER") {
+            version.push_str(&format!(".{}", github_run_number));
+        } else {
+            version.push_str("-dev");
+        }
+
+        std::env::set_var("CARGO_PKG_VERSION", version);
+    }
+
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
         Property::Name("Gyroflow"),

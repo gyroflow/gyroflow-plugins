@@ -34,6 +34,22 @@ deploy:
     cargo build --profile deploy --target x86_64-apple-darwin
     cargo build --profile deploy --target aarch64-apple-darwin
 
+    version=$(grep '^version' Cargo.toml | sed -E 's/version = "(.+)".*/\1/')
+    version_short=$(echo $version | sed -E 's/-.*//')
+
+    if [[ "$GITHUB_REF" == *"tags"* ]]; then
+        version="${version}.0"
+        version_short="${version_short}.0"
+    else
+        if [[ -z "$GITHUB_RUN_NUMBER" ]]; then
+            version="${version}-dev"
+            version_short="${version_short}.1"
+        else
+            version="${version}.${GITHUB_RUN_NUMBER}"
+            version_short="${version_short}.${GITHUB_RUN_NUMBER}"
+        fi
+    fi
+
     cd "{{TargetDir}}"
     rm -Rf gyroflow-adobe-macos Gyroflow-Adobe-macos.dmg
     mkdir -p gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources
@@ -43,6 +59,8 @@ deploy:
     /usr/libexec/PlistBuddy -c 'add CFBundlePackageType string eFKT' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
     /usr/libexec/PlistBuddy -c 'add CFBundleSignature string FXTC' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
     /usr/libexec/PlistBuddy -c 'add CFBundleIdentifier string xyz.gyroflow.adobe' gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
+    /usr/libexec/PlistBuddy -c "add CFBundleVersion string $version_short" gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
+    /usr/libexec/PlistBuddy -c "add CFBundleShortVersionString string $version" gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
 
     cp x86_64-apple-darwin/deploy/gyroflow_adobe.rsrc gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources/Gyroflow.rsrc
 

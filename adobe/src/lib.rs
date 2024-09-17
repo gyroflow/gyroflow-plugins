@@ -610,7 +610,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                     let (sx, sy) = (f64::from(in_data.downsample_x()), f64::from(in_data.downsample_y()));
 
                     let (w, h) = (params.get_f64(Params::OutputWidth).unwrap(), params.get_f64(Params::OutputHeight).unwrap());
-                    let (x, y) = ((in_result.ref_width as f64 - w) / 2.0, (in_result.ref_height  as f64 - h) / 2.0);
+                    let (x, y) = ((in_result.ref_width as f64 - w) / 2.0, (in_result.ref_height as f64 - h) / 2.0);
 
                     extra.set_result_rect(ae::Rect { left: (x * sx).round() as _, top: (y * sy).round() as _, right: ((x + w) * sx).round() as _, bottom: ((y + h) * sy).round() as _ });
                     extra.set_max_result_rect(extra.result_rect());
