@@ -97,7 +97,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
         }
         ParameterType::Slider { id, label, min, max, default, .. } => {
             let p = Params::from_str(id).unwrap();
-            //if p == Params::VideoSpeed { return; }
+            if p == Params::VideoSpeed { return; }
             params.add_with_flags(p, label, ae::FloatSliderDef::setup(|f| {
                 f.set_valid_min(min as f32);
                 f.set_slider_min(min as f32);
@@ -224,6 +224,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn get_f64(&self, p: Params) -> PluginResult<f64> {
+        if p == Params::VideoSpeed { return Ok(100.0); }
         if p == Params::OutputWidth || p == Params::OutputHeight {
             let stored = self.stored.read();
             if stored.sequence_size != (0, 0) {
@@ -249,6 +250,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
     }
     fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> {
+        if p == Params::VideoSpeed { return Ok(()); }
         self.stored.write().pending_params_f64.insert(p, v);
         match &mut self.inner {
             ParamsInner::Ae(x) => {
@@ -284,6 +286,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn set_enabled(&mut self, p: Params, v: bool) -> PluginResult<()> {
+        if p == Params::VideoSpeed { return Ok(()); }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 let mut x = x.get_mut(p)?.clone();
@@ -297,6 +300,21 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn get_f64_at_time(&self, p: Params, time: TimeType) -> PluginResult<f64> {
+        if p == Params::VideoSpeed {
+            if self.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() && !self.stored.read().speed_per_frame.is_empty() {
+                let stored = self.stored.read();
+                let frame = match time {
+                    TimeType::Frame(x) => x as usize,
+                    TimeType::FrameOrMicrosecond((Some(x), _)) => x as usize,
+                    _ => panic!("Shouldn't happen"),
+                };
+                if let Some(v) = stored.speed_per_frame.get(frame) {
+                    return Ok(*v);
+                }
+            } else {
+                return Ok(100.0);
+            }
+        }
         match &self.inner {
             ParamsInner::Ae(x) => {
                 let in_data = x.in_data();
@@ -341,6 +359,9 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn is_keyframed(&self, p: Params) -> bool {
+        if p == Params::VideoSpeed {
+            return self.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() && !self.stored.read().speed_per_frame.is_empty();
+        }
         match &self.inner {
             ParamsInner::Ae(x) => {
                 if let Ok(keyframe_count) = x.get(p).and_then(|x| x.keyframe_count()) {
@@ -357,7 +378,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 }
             }
             ParamsInner::Premiere((filter, _render_params)) => {
-                filter.next_keyframe_time(param_index_for_type(p, None).unwrap(), -1) != Err(pr::Error::NoKeyframeAfterInTime)
+                if let Some(ind) = param_index_for_type(p, None) {
+                    filter.next_keyframe_time(ind, -1) != Err(pr::Error::NoKeyframeAfterInTime)
+                } else {
+                    false
+                }
             }
         }
     }
@@ -365,6 +390,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Vec::new()
     }
     fn set_f64_at_time(&mut self, p: Params, time: TimeType, v: f64) -> PluginResult<()> {
+        if p == Params::VideoSpeed { return Ok(()); }
         // TODO
         match &mut self.inner {
             ParamsInner::Ae(x) => {

@@ -1,6 +1,6 @@
 
 use after_effects as ae;
-use premiere as pr;
+
 
 
 use gyroflow_plugin_base::*;
@@ -12,6 +12,7 @@ use std::sync::Arc;
 use ae::aegp::{ LayerFlags, LayerStream, TimeMode, PluginId, StreamValue };
 
 mod ui;
+mod premiere;
 
 mod parameters;
 use parameters::*;
@@ -21,7 +22,7 @@ use serde::{ Serialize, Deserialize };
 static mut AEGP_PLUGIN_ID: PluginId = 0;
 static mut IS_PREMIERE: bool = false;
 static GLOBAL_INST: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-fn global_inst<'a>() -> &'a mut Plugin {
+pub(crate) fn global_inst<'a>() -> &'a mut Plugin {
     unsafe {
         let ptr = (*GLOBAL_INST.get_or_init(|| 0)) as *mut Plugin;
         &mut *ptr
@@ -44,11 +45,13 @@ pub struct StoredParams {
     pub media_file_path: String,
     pub instance_id: String,
     pub sequence_size: (usize, usize),
+    pub media_fps: f64,
     pub media_fps_ticks: i64,
     pub pending_params_f64: HashMap<Params, f64>,
     pub pending_params_bool: HashMap<Params, bool>,
     pub pending_params_str: HashMap<Params, String>,
     pub premiere_keyframed_params: HashSet<Params>,
+    pub speed_per_frame: Vec<f64>,
 }
 impl Default for StoredParams {
     fn default() -> Self {
@@ -58,6 +61,7 @@ impl Default for StoredParams {
             media_file_path: String::new(),
             instance_id: instance_id.clone(),
             sequence_size: (0, 0),
+            media_fps: 0.0,
             media_fps_ticks: 0,
             pending_params_f64: HashMap::new(),
             pending_params_bool: HashMap::new(),
@@ -65,6 +69,7 @@ impl Default for StoredParams {
                 (Params::Status, String::from("---")),
             ]),
             premiere_keyframed_params: HashSet::new(),
+            speed_per_frame: Vec::new(),
         }
     }
 }
@@ -94,7 +99,7 @@ impl CrossThreadInstance {
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false, //unsafe { IS_PREMIERE },
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
-                use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
+                use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()
             })),
         };
@@ -195,7 +200,7 @@ impl Instance {
                         let in_ptr = gpu_suite.gpu_world_data(in_data.effect_ref(), input_world)?;
                         let out_ptr = gpu_suite.gpu_world_data(in_data.effect_ref(), output_world)?;
 
-                        log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {what_gpu:?}, pixel_format: {pixel_format:?}");
+                        // log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {what_gpu:?}, pixel_format: {pixel_format:?}");
 
                         match what_gpu {
                             #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -459,7 +464,17 @@ impl CrossThreadInstance {
         let _self = self.get().unwrap();
 
         let mut _self = _self.write();
+
+        _self.gyroflow.as_mut().unwrap().keyframable_params.write().use_gyroflows_keyframes = plugin.params.get(Params::UseGyroflowsKeyframes)?.as_checkbox()?.value();
+        let mut fps = _self.gyroflow.as_ref().unwrap().fps;
+        if fps == 0.0 {
+            fps = _self.stored.read().media_fps;
+        } else {
+            _self.stored.write().media_fps = fps;
+        }
+
         let stored = _self.stored.clone();
+        let stored2 = _self.stored.clone();
         if let Some(inst) = _self.gyroflow.as_mut() {
             if param == Params::OutputSizeToTimeline && plugin.in_data.is_after_effects() {
                 let _ = (|| -> Result<(), ae::Error> {
@@ -474,6 +489,45 @@ impl CrossThreadInstance {
             }
 
             let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
+
+            if plugin.in_data.is_after_effects() && params.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() {
+                let layer = plugin.in_data.effect().layer()?;
+                if layer.flags()?.contains(LayerFlags::TIME_REMAPPING) {
+                    let plugin_id = unsafe { AEGP_PLUGIN_ID };
+                    if let Ok(tr) = layer.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
+                        if fps > 0.0 {
+                            let mut speed_per_frame = Vec::new();
+                            let mut prev_original_ts = 0.0;
+                            let mut prev_new_ts = 0.0;
+                            let mut frame = 0;
+
+                            loop {
+                                let original_ts = frame as f64 / fps;
+                                let time = ae::Time { value: (original_ts * plugin.in_data.time_scale() as f64).round() as i32, scale: plugin.in_data.time_scale() };
+                                if let Ok(StreamValue::OneD(new_ts)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
+                                    if frame > 0 {
+                                        let original_diff = original_ts - prev_original_ts;
+                                        let new_diff = new_ts - prev_new_ts;
+                                        let speed = (new_diff / original_diff) * 100.0;
+                                        if speed.abs() > 0.001 {
+                                            speed_per_frame.push(speed);
+                                        } else {
+                                            break;
+                                        }
+                                    } else {
+                                        speed_per_frame.push(100.0);
+                                    }
+                                    prev_original_ts = original_ts;
+                                    prev_new_ts = new_ts;
+                                }
+                                frame += 1;
+                            }
+                            stored2.write().speed_per_frame = speed_per_frame;
+                        }
+                    }
+                }
+            }
+
             //let current_instance_id = params.get_string(Params::InstanceId).unwrap_or_default();
             if let Err(e) = inst.param_changed(&mut params, &plugin.global.gyroflow.manager_cache, param, true) {
                 log::error!("param_changed error: {e:?}");
@@ -687,188 +741,4 @@ impl Drop for Plugin {
     }
 }
 
-struct PremiereGPU;
-impl Default for PremiereGPU {
-    fn default() -> Self { log::info!("creating PremiereGPU"); Self { }}
-}
-impl Drop for PremiereGPU {
-    fn drop(&mut self) { log::info!("dropping PremiereGPU: {:?}", self as *const _); }
-}
-
-impl pr::GpuFilter for PremiereGPU {
-    fn global_init() { }
-    fn global_destroy() { }
-
-    fn get_frame_dependencies(&self, _filter: &pr::GpuFilterData, _render_params: pr::RenderParams, _query_index: &mut i32) -> Result<pr::sys::PrGPUFilterFrameDependency, pr::Error> {
-        Err(pr::Error::NotImplemented)
-    }
-    fn precompute(&self, _filter: &pr::GpuFilterData, _render_params: pr::RenderParams, _index: i32, _frame: pr::sys::PPixHand) -> Result<(), pr::Error> {
-        Err(pr::Error::NotImplemented)
-    }
-    fn render(&self, filter: &pr::GpuFilterData, render_params: pr::RenderParams, frames: *const pr::sys::PPixHand, _frame_count: usize, out_frame: *mut pr::sys::PPixHand) -> Result<(), pr::Error> {
-        let (frames, out_frame) = unsafe {
-            (*filter.instance_ptr).outIsRealtime = 1;
-            (*frames, *out_frame)
-        };
-        let pixel_format = filter.ppix_suite.pixel_format(out_frame).unwrap();
-
-        let in_frame_data = filter.gpu_device_suite.gpu_ppix_data(frames).unwrap();
-        let out_frame_data = filter.gpu_device_suite.gpu_ppix_data(out_frame).unwrap();
-
-        let in_stride = filter.ppix_suite.row_bytes(frames).unwrap();
-        let out_stride = filter.ppix_suite.row_bytes(out_frame).unwrap();
-
-        let in_bounds  = filter.ppix_suite.bounds(frames).unwrap();
-        let out_bounds = filter.ppix_suite.bounds(out_frame).unwrap();
-        let in_size  = ( in_bounds.right -  in_bounds.left,  in_bounds.bottom -  in_bounds.top);
-        let out_size = (out_bounds.right - out_bounds.left, out_bounds.bottom - out_bounds.top);
-
-        if let Ok(pr::PropertyData::Binary(bytes)) = filter.property(pr::Property::Effect_FilterOpaqueData) {
-            if bytes.len() > 2 {
-                let inst = CrossThreadInstance::unflatten(1, &bytes[2..]).unwrap_or_default();
-
-                let inst = inst.get().unwrap();
-                let mut inst = inst.write();
-
-                let clip_node = filter.video_segment_suite.acquire_operator_owner_node_id(filter.node_id())?;
-                let media_node = filter.video_segment_suite.acquire_input_node_id(clip_node, 0)?;
-
-                {
-                    let keyframe_test = [ Params::Fov, Params::Smoothness, Params::ZoomLimit, Params::LensCorrectionStrength,
-                                          Params::HorizonLockAmount, Params::HorizonLockRoll, Params::VideoSpeed, Params::Rotation,
-                                          Params::AdditionalYaw, Params::AdditionalPitch ];
-                    let mut stored = inst.stored.write();
-                    stored.premiere_keyframed_params.clear();
-                    for kf in keyframe_test {
-                        if filter.next_keyframe_time(param_index_for_type(kf, None).unwrap(), -1) != Err(pr::Error::NoKeyframeAfterInTime) {
-                            stored.premiere_keyframed_params.insert(kf);
-                        }
-                    }
-                }
-
-                if inst.stored.read().media_file_path.is_empty() {
-                    if let Ok(pr::PropertyData::String(media_path)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
-                        let mut stored = inst.stored.write();
-                        stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned()));
-                        stored.media_file_path = media_path;
-                        stored.sequence_size = (render_params.render_width() as _, render_params.render_height() as _);
-                    }
-                    if let Ok(pr::PropertyData::Time(media_fps)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamFrameRate) {
-                        inst.stored.write().media_fps_ticks = media_fps;
-                    }
-                    /*filter.video_segment_suite.iterate_node_properties(clip_node, |k, v| {
-                        log::info!("clip_node Property {k:?} = {v:?}");
-                    })?;
-                    filter.video_segment_suite.iterate_node_properties(filter.node_id(), |k, v| {
-                        log::info!("operator Property {k:?} = {v:?}");
-                    })?;
-                    filter.video_segment_suite.iterate_node_properties(media_node.1, |k, v| {
-                        log::info!("Property {k:?} = {v:?}");
-                    })?;*/
-                    // Media_ClipSpeed
-                    // Media_StreamPixelAspectRatioNum
-                    // Media_StreamPixelAspectRatioDen
-                    // Media_SequenceFrameRate
-                    // Media_StreamFrameRate
-                }
-                if let Ok(pr::PropertyData::Keyframes(kf)) = filter.video_segment_suite.node_property(clip_node, pr::Property::Clip_TimeRemapping) {
-                    log::info!("kf: {}", kf.0.replace("\\n", "\n"));
-                }
-
-                let mut params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
-
-                let path = params.get_string(Params::ProjectPath).unwrap();
-                if path.is_empty() {
-                    return Ok(());
-                }
-                let instance_id = params.get_string(Params::InstanceId).unwrap();
-                let disable_stretch = params.get_bool(Params::DisableStretch).unwrap();
-
-                let out_w = params.get_f64(Params::OutputWidth).unwrap();
-                let out_h = params.get_f64(Params::OutputHeight).unwrap();
-
-                let key = format!("{path}{disable_stretch}{instance_id}");
-                //log::info!("key {key}, out_size {out_w}x{out_h}");
-
-                //log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
-
-                //log::info!("{:?}", inst.stored);
-
-                let base_inst = inst.gyroflow.as_mut().unwrap();
-                base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
-
-                if let Ok(stab) = base_inst.stab_manager(&mut params, &global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
-                    static TICKS_PER_SEC: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-                    let ticks_per_sec = *TICKS_PER_SEC.get_or_init(|| pr::suites::Time::new().and_then(|x| x.ticks_per_second()).unwrap_or(254016000000) as f64);
-
-                    let fps = stab.params.read().fps;
-
-                    let fps_ticks = inst.stored.read().media_fps_ticks;
-                    let fps_ticks = if fps_ticks == 0 { ticks_per_sec as f64 / fps } else { fps_ticks as f64 };
-
-                    // round the timestamp_us according to the fps, so it's never between frames and always points to a valid frame timestamp
-                    let frame = render_params.clip_time() as f64 / fps_ticks;
-                    log::info!("frame: {frame}");
-                    let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
-                    let timestamp_us = (frame * (1_000_000.0 / fps)).round() as i64;
-                    log::info!("timestamp_us2: {timestamp_us}");
-
-                    let src_size = (in_size.0 as usize, in_size.1 as usize, in_stride as usize);
-                    let dest_size = (out_size.0 as usize, out_size.1 as usize, out_stride as usize);
-                    // let src_rect = GyroflowPluginBase::get_center_rect(in_size.0 as usize, in_size.1 as usize, org_ratio);
-                    let out_rect = GyroflowPluginBase::get_center_rect(out_size.0 as usize, out_size.1 as usize, out_w as f64 / out_h.max(1.0) as f64);
-
-                    let in_ptr = in_frame_data;
-                    let out_ptr = out_frame_data;
-
-                    let api = filter.gpu_info.outDeviceFramework;
-
-                    //log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {:?}, pixel_format: {pixel_format:?} {src_rect:?}->{out_rect:?}", api);
-
-                    let buffers = match api {
-                        #[cfg(any(target_os = "windows", target_os = "linux"))]
-                        pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_CUDA => (
-                            BufferSource::CUDABuffer { buffer: in_ptr },
-                            BufferSource::CUDABuffer { buffer: out_ptr },
-                            true
-                        ),
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_Metal => (
-                            BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: filter.gpu_info.outCommandQueueHandle as *mut _ },
-                            BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: std::ptr::null_mut() },
-                            true
-                        ),
-                        pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_OpenCL => (
-                            BufferSource::OpenCL { texture: in_ptr,  queue: filter.gpu_info.outCommandQueueHandle },
-                            BufferSource::OpenCL { texture: out_ptr, queue: std::ptr::null_mut() },
-                            true
-                        ),
-                        _ => panic!("Invalid GPU framework")
-                    };
-
-                    let input_rotation = -params.get_f64(Params::InputRotation).unwrap() as f32;
-
-                    let mut buffers = Buffers {
-                        input:  BufferDescription { size: src_size,  rect: None,           data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
-                        output: BufferDescription { size: dest_size, rect: Some(out_rect), data: buffers.1, rotation: None,                 texture_copy: buffers.2 }
-                    };
-                    let result = match pixel_format {
-                        pr::PixelFormat::GpuBgra4444_32f => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
-                        pr::PixelFormat::GpuBgra4444_16f => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
-                        _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
-                    };
-                    match result {
-                        Ok(i)  => { log::info!("process_pixels ok: {i:?}"); },
-                        Err(e) => { log::error!("process_pixels error: {e:?}"); }
-                    }
-                } else {
-                    log::info!("!!!!!!!!!! Key not found: {key}");
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
 ae::define_effect!(Plugin, CrossThreadInstance, Params);
-pr::define_gpu_filter!(PremiereGPU);

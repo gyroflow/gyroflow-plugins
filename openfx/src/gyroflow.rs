@@ -449,6 +449,8 @@ impl Execute for GyroflowPlugin {
                     instance_data.plugin.timeline_size = ((rect.x2 - rect.x1) as usize, (rect.y2 - rect.y1) as usize);
                 }
 
+                instance_data.plugin.keyframable_params.write().use_gyroflows_keyframes = instance_data.params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
+
                 instance_data.plugin.param_changed(&mut instance_data.params, &self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
                     log::error!("param_changed error: {e:?}");
                     Error::InvalidAction
@@ -535,6 +537,7 @@ impl Execute for GyroflowPlugin {
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Checkbox { id, label, hint, default } => {
+                            if id == "StabilizationSpeedRamp" { return OK; }
                             let mut param = param_set.param_define_boolean(id)?;
                             param.set_label(label)?;
                             param.set_hint(hint)?;

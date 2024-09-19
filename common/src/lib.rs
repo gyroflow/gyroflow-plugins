@@ -59,6 +59,7 @@ pub enum Params {
     ToggleOverview,
     DontDrawOutside,
     IncludeProjectData,
+    StabilizationSpeedRamp,
 }
 
 thread_local! {
@@ -291,7 +292,8 @@ impl GyroflowPluginBase {
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
-                ParameterType::Button   { id: "RecalculateKeyframes",  label: "Recalculate keyframes",    hint: "Recalculate keyframes after adjusting the splines (in Fusion mode)" },
+                ParameterType::Checkbox { id: "StabilizationSpeedRamp",label: "Adjust stabilization to speed", hint: "When you speed ramp the clip, let Gyroflow adjust the stabilization amount to the video speed.", default: true },
+                ParameterType::Button   { id: "RecalculateKeyframes",  label: "Recalculate keyframes",         hint: "Recalculate keyframes after adjusting the splines (in Fusion mode)" },
             ] },
             ParameterType::Group { id: "OutputSizeGroup", label: "Output size", opened: false, parameters: vec![
                 ParameterType::Slider   { id: "OutputWidth",    label: "Width",  hint: "Width",  min: 1.0, max: 16384.0, default: 3840.0 },
