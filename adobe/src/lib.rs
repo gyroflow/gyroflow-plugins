@@ -110,7 +110,6 @@ impl CrossThreadInstance {
 
 impl Default for Instance {
     fn default() -> Self {
-        log::info!("Instance::default");
         let mut stored = StoredParams::default();
         let gyroflow = CrossThreadInstance::new_base_instance(&mut stored.instance_id);
         Self {
@@ -145,19 +144,16 @@ impl Instance {
                 }
                 if let Some(stab) = stab {
                     let RenderData { stab, stored } = stab;
-                    //log::info!("pixel_format: {pixel_format:?}, is_gpu: {is_gpu}, arc count: {}", Arc::strong_count(&stab));
-                    //log::info!("smart_render: {}, size: {:?}", in_data.current_timestamp(), stab.params.read().size);
-                    log::info!("smart_render: timestamp: {} time: {}, time_step: {}, time_scale: {}, frame: {}, local_frame: {}",
-                        in_data.current_timestamp(),
-                        in_data.current_time(),
-                        in_data.time_step(),
-                        in_data.time_scale(),
-                        in_data.current_frame(),
-                        in_data.current_frame_local()
-                    );
+                    // log::info!("smart_render: timestamp: {} time: {}, time_step: {}, time_scale: {}, frame: {}, local_frame: {}",
+                    //     in_data.current_timestamp(),
+                    //     in_data.current_time(),
+                    //     in_data.time_step(),
+                    //     in_data.time_scale(),
+                    //     in_data.current_frame(),
+                    //     in_data.current_frame_local()
+                    // );
 
                     let mut timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
-                    log::info!("timestamp_us: {timestamp_us}");
 
                     let (org_ratio, fps) = {
                         let params = stab.params.read();
@@ -178,10 +174,8 @@ impl Instance {
 
                     if !layer_flags.contains(LayerFlags::FRAME_BLENDING) {
                         let frame = timestamp_us as f64 * (fps / 1_000_000.0);
-                        log::info!("frame: {frame}");
                         let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
                         timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
-                        log::info!("timestamp_us: {timestamp_us}");
                     }
 
                     let src_size = (input_world.width(), input_world.height(), input_world.buffer_stride());
@@ -189,7 +183,7 @@ impl Instance {
                     let src_rect = GyroflowPluginBase::get_center_rect(input_world.width(),  input_world.height(), org_ratio);
 
                     let what_gpu = extra.what_gpu();
-                    log::info!("Render API: {what_gpu:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dest_size: {dest_size:?}");
+                    // log::info!("Render API: {what_gpu:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dest_size: {dest_size:?}");
 
                     let gpu_suite = ae::pf::suites::GPUDevice::new();
 
@@ -261,8 +255,6 @@ impl Instance {
     }
 
     fn cpu_render(in_data: ae::InData, src: &Layer, dst: &mut Layer) -> Result<(), ae::Error> {
-        log::info!("render: {}", in_data.current_timestamp());
-
         if let Some(stab) = in_data.frame_data::<RenderData>() {
             let RenderData { stab, .. } = stab;
             let timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
@@ -398,10 +390,6 @@ impl AdobePluginGlobal for Plugin {
                     out_data.set_out_flag2(ae::OutFlags2::SupportsGpuRenderF32, true);
                 }
             }
-            ae::Command::GpuDeviceSetdown { extra } => {
-                log::info!("gpu_device_setdown: {:?}", extra.what_gpu());
-            }
-
             _ => {}
         }
         Ok(())
@@ -490,40 +478,38 @@ impl CrossThreadInstance {
 
             let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
 
-            if plugin.in_data.is_after_effects() && params.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() {
+            if fps > 0.0 && plugin.in_data.is_after_effects() && params.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() {
                 let layer = plugin.in_data.effect().layer()?;
                 if layer.flags()?.contains(LayerFlags::TIME_REMAPPING) {
                     let plugin_id = unsafe { AEGP_PLUGIN_ID };
                     if let Ok(tr) = layer.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
-                        if fps > 0.0 {
-                            let mut speed_per_frame = Vec::new();
-                            let mut prev_original_ts = 0.0;
-                            let mut prev_new_ts = 0.0;
-                            let mut frame = 0;
+                        let mut speed_per_frame = Vec::new();
+                        let mut prev_original_ts = 0.0;
+                        let mut prev_new_ts = 0.0;
+                        let mut frame = 0;
 
-                            loop {
-                                let original_ts = frame as f64 / fps;
-                                let time = ae::Time { value: (original_ts * plugin.in_data.time_scale() as f64).round() as i32, scale: plugin.in_data.time_scale() };
-                                if let Ok(StreamValue::OneD(new_ts)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
-                                    if frame > 0 {
-                                        let original_diff = original_ts - prev_original_ts;
-                                        let new_diff = new_ts - prev_new_ts;
-                                        let speed = (new_diff / original_diff) * 100.0;
-                                        if speed.abs() > 0.001 {
-                                            speed_per_frame.push(speed);
-                                        } else {
-                                            break;
-                                        }
+                        loop {
+                            let original_ts = frame as f64 / fps;
+                            let time = ae::Time { value: (original_ts * plugin.in_data.time_scale() as f64).round() as i32, scale: plugin.in_data.time_scale() };
+                            if let Ok(StreamValue::OneD(new_ts)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
+                                if frame > 0 {
+                                    let original_diff = original_ts - prev_original_ts;
+                                    let new_diff = new_ts - prev_new_ts;
+                                    let speed = (new_diff / original_diff) * 100.0;
+                                    if speed.abs() > 0.001 {
+                                        speed_per_frame.push(speed);
                                     } else {
-                                        speed_per_frame.push(100.0);
+                                        break;
                                     }
-                                    prev_original_ts = original_ts;
-                                    prev_new_ts = new_ts;
+                                } else {
+                                    speed_per_frame.push(100.0);
                                 }
-                                frame += 1;
+                                prev_original_ts = original_ts;
+                                prev_new_ts = new_ts;
                             }
-                            stored2.write().speed_per_frame = speed_per_frame;
+                            frame += 1;
                         }
+                        stored2.write().speed_per_frame = speed_per_frame;
                     }
                 }
             }
@@ -547,13 +533,9 @@ impl CrossThreadInstance {
 
 impl AdobePluginInstance for CrossThreadInstance {
     fn flatten(&self) -> Result<(u16, Vec<u8>), Error> {
-        let bytes = bincode::serialize(&self).unwrap();
-        log::info!("flatten, len: {}", bytes.len());
-        log::info!("bytes: {}", pretty_hex::pretty_hex(&bytes));
-        Ok((1, bytes))
+        Ok((1, bincode::serialize(&self).unwrap()))
     }
     fn unflatten(version: u16, bytes: &[u8]) -> Result<Self, Error> {
-        log::info!("unflatten version: {version} bytes: {}", pretty_hex::pretty_hex(&bytes));
         match bincode::deserialize::<Self>(bytes) {
             Ok(inst) => {
                 let mut _self = inst.get().unwrap();
@@ -587,20 +569,11 @@ impl AdobePluginInstance for CrossThreadInstance {
 
         let in_data = &mut plugin.in_data;
 
-        // let _pica = pr::PicaBasicSuite::from_sp_basic_suite_raw(in_data.pica_basic_suite_ptr() as *const _);
-
-        /*if !matches!(cmd, ae::Command::GlobalSetup | ae::Command::ParamsSetup) {
-            plugin.global.set_global_ptr(&in_data);
-        }*/
-
         match cmd {
             ae::Command::UserChangedParam { param_index } => {
                 self.user_changed_param(plugin, plugin.params.type_at(param_index))?;
-
-                // plugin.out_data.set_out_flag(ae::OutFlags::RefreshUi, true);
                 plugin.out_data.set_force_rerender();
             }
-            ae::Command::UpdateParamsUi => { }
             ae::Command::SequenceSetup => {
                 let _self = self.get().unwrap();
                 let _self = _self.read();
@@ -635,10 +608,6 @@ impl AdobePluginInstance for CrossThreadInstance {
                     Ok(())
                 })();
             }
-            ae::Command::SequenceSetdown => {
-                //let _self = self.get().unwrap();
-                //_self.write().gyroflow.as_mut().unwrap().clear_stab(&plugin.global.gyroflow.manager_cache);
-            },
             ae::Command::SmartPreRender { mut extra } => {
                 let what_gpu = extra.what_gpu();
                 let mut req = extra.output_request();

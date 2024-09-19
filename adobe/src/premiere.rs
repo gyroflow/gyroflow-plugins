@@ -135,11 +135,7 @@ impl pr::GpuFilter for PremiereGPU {
                 let out_h = params.get_f64(Params::OutputHeight).unwrap();
 
                 let key = format!("{path}{disable_stretch}{instance_id}");
-                //log::info!("key {key}, out_size {out_w}x{out_h}");
-
                 // log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
-
-                //log::info!("{:?}", inst.stored);
 
                 let base_inst = inst.gyroflow.as_mut().unwrap();
                 base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
@@ -165,7 +161,7 @@ impl pr::GpuFilter for PremiereGPU {
 
                     let api = filter.gpu_info.outDeviceFramework;
 
-                    //log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {:?}, pixel_format: {pixel_format:?} {src_rect:?}->{out_rect:?}", api);
+                    // log::info!("Render GPU: {in_ptr:?} -> {out_ptr:?}. API: {:?}, pixel_format: {pixel_format:?} {src_rect:?}->{out_rect:?}", api);
 
                     let buffers = match api {
                         #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -194,17 +190,15 @@ impl pr::GpuFilter for PremiereGPU {
                         input:  BufferDescription { size: src_size,  rect: None,           data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
                         output: BufferDescription { size: dest_size, rect: Some(out_rect), data: buffers.1, rotation: None,                 texture_copy: buffers.2 }
                     };
-                    let result = match pixel_format {
+                    if let Err(e) = match pixel_format {
                         pr::PixelFormat::GpuBgra4444_32f => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
                         pr::PixelFormat::GpuBgra4444_16f => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
                         _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
-                    };
-                    match result {
-                        Ok(i)  => { log::info!("process_pixels ok: {i:?}"); },
-                        Err(e) => { log::error!("process_pixels error: {e:?}"); }
+                    } {
+                        log::error!("Failed to process pixels: {e:?}");
                     }
                 } else {
-                    log::info!("!!!!!!!!!! Key not found: {key}");
+                    log::error!("Key not found: {key}");
                 }
             }
         }

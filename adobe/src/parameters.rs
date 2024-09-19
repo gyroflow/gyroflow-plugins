@@ -167,7 +167,6 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
     }
     fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> {
-        log::info!("set_string: {p:?} = {v}");
         if p == Params::InstanceId {
             self.stored.write().instance_id = v.to_owned();
         }
