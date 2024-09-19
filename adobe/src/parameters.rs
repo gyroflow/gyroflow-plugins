@@ -353,8 +353,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             }
         }
     }
-    fn clear_keyframes(&mut self, param: Params) -> PluginResult<()> {
-        // TODO
+    fn clear_keyframes(&mut self, _param: Params) -> PluginResult<()> {
         Ok(())
     }
     fn is_keyframed(&self, p: Params) -> bool {
@@ -388,46 +387,16 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     fn get_keyframes(&self, _p: Params) -> Vec<(TimeType, f64)> {
         Vec::new()
     }
-    fn set_f64_at_time(&mut self, p: Params, time: TimeType, v: f64) -> PluginResult<()> {
-        if p == Params::VideoSpeed { return Ok(()); }
+    fn set_f64_at_time(&mut self, _p: Params, _time: TimeType, _v: f64) -> PluginResult<()> {
         // TODO
+        /*if p == Params::VideoSpeed { return Ok(()); }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
             }
             ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values
-        }
+        }*/
         Ok(())
     }
 }
-
-/*
-    get_bool_at_time: s p, t {
-        let params = s.params()?;
-        let in_data = params.in_data();
-        let time = frame_from_timetype(t) * in_data.time_step() as f64;
-        Ok(params.get_at(*p, Some(time as i32), None, None)?.as_checkbox()?.value())
-    },
-    get_f64_at_time: s p, t {
-        let params = s.params()?;
-        let in_data = params.in_data();
-        let time = frame_from_timetype(t) * in_data.time_step() as f64;
-        Ok(params.get_at(*p, Some(time as i32), None, None)?.as_float_slider()?.value())
-    },
-    set_f64_at_time: s p, t, v {
-        let mut params = s.params()?;
-        let in_data = params.in_data();
-        let time = frame_from_timetype(t) * in_data.time_step() as f64;
-        params.get_mut_at(*p, Some(time as i32), None, None)?.as_float_slider_mut()?.set_value(v);
-        Ok(())
-    },
-    is_keyframed: s p {
-        s.params()
-            .and_then(|x| x.get(*p))
-            .map(|x| x.keyframe_count().unwrap_or(0) > 0).unwrap_or_default()
-    },
-    get_keyframes: _s _p {
-        Vec::new()
-    },
-*/

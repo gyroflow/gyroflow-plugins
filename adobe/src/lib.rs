@@ -1,8 +1,6 @@
 
 use after_effects as ae;
 
-
-
 use gyroflow_plugin_base::*;
 use gyroflow_plugin_base::gyroflow_core::GyroflowCoreError;
 use std::collections::HashSet;
@@ -155,11 +153,6 @@ impl Instance {
 
                     let mut timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
 
-                    let (org_ratio, fps) = {
-                        let params = stab.params.read();
-                        (params.size.0 as f64 / params.size.1 as f64, params.fps)
-                    };
-
                     let layer_flags = in_data.effect().layer()?.flags()?;
 
                     if layer_flags.contains(LayerFlags::TIME_REMAPPING) {
@@ -173,6 +166,8 @@ impl Instance {
                     }
 
                     if !layer_flags.contains(LayerFlags::FRAME_BLENDING) {
+                        let fps = stab.params.read().fps;
+
                         let frame = timestamp_us as f64 * (fps / 1_000_000.0);
                         let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
                         timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
@@ -180,7 +175,7 @@ impl Instance {
 
                     let src_size = (input_world.width(), input_world.height(), input_world.buffer_stride());
                     let dest_size = (output_world.width(), output_world.height(), output_world.buffer_stride());
-                    let src_rect = GyroflowPluginBase::get_center_rect(input_world.width(),  input_world.height(), org_ratio);
+                    // let src_rect = GyroflowPluginBase::get_center_rect(input_world.width(),  input_world.height(), org_ratio);
 
                     let what_gpu = extra.what_gpu();
                     // log::info!("Render API: {what_gpu:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dest_size: {dest_size:?}");
@@ -268,7 +263,7 @@ impl Instance {
             let dst_size = (dst.width() as usize, dst.height() as usize, dst.buffer_stride());
             let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
-            log::info!("org_ratio: {org_ratio:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dst_size: {dst_size:?}, src.stride: {}, bit_depth: {}", src.row_bytes(), src.bit_depth());
+            // log::info!("org_ratio: {org_ratio:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dst_size: {dst_size:?}, src.stride: {}, bit_depth: {}", src.row_bytes(), src.bit_depth());
 
             let src_buffer = unsafe { std::slice::from_raw_parts_mut(src.buffer().as_ptr() as *mut u8, src.buffer().len()) };
             let dst_buffer = unsafe { std::slice::from_raw_parts_mut(dst.buffer().as_ptr() as *mut u8, dst.buffer().len()) };
@@ -277,15 +272,13 @@ impl Instance {
                 input:  BufferDescription { size: src_size, rect: Some(src_rect), data: BufferSource::Cpu { buffer: src_buffer }, rotation: None, texture_copy: false },
                 output: BufferDescription { size: dst_size, rect: None,           data: BufferSource::Cpu { buffer: dst_buffer }, rotation: None, texture_copy: false }
             };
-            let result = match src.bit_depth() {
+            if let Err(e) = match src.bit_depth() {
                 8  => stab.process_pixels::<RGBA8> (timestamp_us, None, &mut buffers),
                 16 => stab.process_pixels::<RGBA16>(timestamp_us, None, &mut buffers),
                 32 => stab.process_pixels::<RGBAf> (timestamp_us, None, &mut buffers),
                 bd => panic!("Unknown bit depth: {bd}")
-            };
-            match result {
-                Ok(i)  => { log::info!("process_pixels ok: {i:?}"); },
-                Err(e) => { log::error!("process_pixels error: {e:?}"); }
+            } {
+                log::error!("Failed to process pixels: {e:?}");
             }
         } else {
             dst.copy_from(src, None, None)?;
@@ -325,7 +318,7 @@ impl AdobePluginGlobal for Plugin {
         Ok(())
     }
 
-    fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
+    fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, _params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
         self.gyroflow.initialize_log();
 
         // log::info!("global command: {:?}, thread: {:?}, ptr: {:?}, effect_ref: {:?}", cmd, std::thread::current().id(), self as *const _, in_data.effect_ref().as_ptr());
@@ -535,7 +528,7 @@ impl AdobePluginInstance for CrossThreadInstance {
     fn flatten(&self) -> Result<(u16, Vec<u8>), Error> {
         Ok((1, bincode::serialize(&self).unwrap()))
     }
-    fn unflatten(version: u16, bytes: &[u8]) -> Result<Self, Error> {
+    fn unflatten(_version: u16, bytes: &[u8]) -> Result<Self, Error> {
         match bincode::deserialize::<Self>(bytes) {
             Ok(inst) => {
                 let mut _self = inst.get().unwrap();
