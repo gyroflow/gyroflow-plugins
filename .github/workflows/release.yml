@@ -67,7 +67,7 @@ jobs:
             set -e
             apt-get update -y
             echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-            apt install -y sudo dialog apt-utils git curl zip clang make ocl-icd-opencl-dev
+            apt install -y sudo dialog apt-utils git curl zip clang make ocl-icd-opencl-dev libwayland-client0
             export RUNLEVEL=1
             curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
             source \$HOME/.cargo/env
