@@ -371,6 +371,7 @@ pub struct GyroflowPluginBaseInstance {
     pub ever_changed: bool,
     pub cache_keyframes_every_frame: bool,
     pub framebuffer_inverted: bool,
+    pub anamorphic_adjust_size: bool,
 
     pub opencl_disabled: bool,
 }
@@ -389,6 +390,7 @@ impl Clone for GyroflowPluginBaseInstance {
             opencl_disabled:                self.opencl_disabled,
             cache_keyframes_every_frame:    self.cache_keyframes_every_frame,
             framebuffer_inverted:           self.framebuffer_inverted,
+            anamorphic_adjust_size:         self.anamorphic_adjust_size,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -408,6 +410,7 @@ impl Default for GyroflowPluginBaseInstance {
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false,
+            anamorphic_adjust_size:         true,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -720,7 +723,7 @@ impl GyroflowPluginBaseInstance {
             self.update_loaded_state(params, loaded);
 
             if disable_stretch {
-                stab.disable_lens_stretch();
+                stab.disable_lens_stretch(self.anamorphic_adjust_size);
             }
 
             stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);

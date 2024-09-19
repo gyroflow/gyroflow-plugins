@@ -416,6 +416,7 @@ impl Execute for GyroflowPlugin {
                         opencl_disabled:                false,
                         cache_keyframes_every_frame:    true,
                         framebuffer_inverted:           true,
+                        anamorphic_adjust_size:         true,
                         has_motion:                     false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes:  param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,

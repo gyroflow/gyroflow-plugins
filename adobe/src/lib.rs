@@ -96,6 +96,7 @@ impl CrossThreadInstance {
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false, //unsafe { IS_PREMIERE },
+            anamorphic_adjust_size:         false,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()
@@ -228,16 +229,14 @@ impl Instance {
                         input:  BufferDescription { size: src_size,  rect: None, data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
                         output: BufferDescription { size: dest_size, rect: None, data: buffers.1, rotation: None, texture_copy: buffers.2 }
                     };
-                    let result = match pixel_format {
+                    if let Err(e) = match pixel_format {
                         ae::PixelFormat::GpuBgra128 |
                         ae::PixelFormat::Argb128    => stab.process_pixels::<RGBAf>(timestamp_us, None, &mut buffers),
                         ae::PixelFormat::Argb64     => stab.process_pixels::<RGBA16>(timestamp_us, None, &mut buffers),
                         ae::PixelFormat::Argb32     => stab.process_pixels::<RGBA8>(timestamp_us, None, &mut buffers),
                         _ => Err(GyroflowCoreError::UnsupportedFormat(format!("{pixel_format:?}")))
-                    };
-                    match result {
-                        Ok(i)  => { log::info!("process_pixels ok: {i:?}"); },
-                        Err(e) => { log::error!("process_pixels error: {e:?}"); }
+                    } {
+                        log::error!("Failed to process pixels: {e:?}");
                     }
                 } else {
                     output_world.copy_from(&input_world, None, None)?;
@@ -577,7 +576,11 @@ impl AdobePluginInstance for CrossThreadInstance {
                     let layer = in_data.effect().layer()?;
                     let item = layer.source_item()?;
                     let mut footage_path = String::new();
+                    let mut pixel_aspect_ratio = 1.0f64;
                     if item.item_type()? == ae::aegp::ItemType::Footage {
+                        if let Ok(par) = item.pixel_aspect_ratio() {
+                            pixel_aspect_ratio = par.into();
+                        }
                         footage_path = item.main_footage()?.path(0, 0)?;
                     } else if item.item_type()? == ae::aegp::ItemType::Comp {
                         let comp = item.composition()?;
@@ -585,9 +588,15 @@ impl AdobePluginInstance for CrossThreadInstance {
                             let item = comp.layer_by_index(i)?.source_item()?;
                             if item.item_type()? == ae::aegp::ItemType::Footage {
                                 footage_path = item.main_footage()?.path(0, 0)?;
+                                if let Ok(par) = item.pixel_aspect_ratio() {
+                                    pixel_aspect_ratio = par.into();
+                                }
                                 break;
                             }
                         }
+                    }
+                    if (pixel_aspect_ratio * 100.0).round() != 100.0 {
+                        stored.pending_params_bool.insert(Params::DisableStretch, true);
                     }
                     if !footage_path.is_empty() {
                         stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned()));

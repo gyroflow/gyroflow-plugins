@@ -78,11 +78,15 @@ impl pr::GpuFilter for PremiereGPU {
                     filter.video_segment_suite.iterate_node_properties(media_node.1, |k, v| {
                         log::info!("Property {k:?} = {v:?}");
                     })?;*/
-                    // Media_ClipSpeed
-                    // Media_StreamPixelAspectRatioNum
-                    // Media_StreamPixelAspectRatioDen
-                    // Media_SequenceFrameRate
-                    // Media_StreamFrameRate
+
+                    if let Ok(pr::PropertyData::Int32(num)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioNum) {
+                        if let Ok(pr::PropertyData::Int32(den)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioDen) {
+                            let pixel_aspect_ratio = num as f64 / den as f64;
+                            if (pixel_aspect_ratio * 100.0).round() != 100.0 {
+                                inst.stored.write().pending_params_bool.insert(Params::DisableStretch, true);
+                            }
+                        }
+                    }
                 }
 
                 static TICKS_PER_SEC: std::sync::OnceLock<f64> = std::sync::OnceLock::new();

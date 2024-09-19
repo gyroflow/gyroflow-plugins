@@ -162,7 +162,11 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 Ok(x.get(p)?.as_arbitrary()?.value::<ArbString>()?.get().to_string())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                Ok(filter.param_arbitrary_data::<ArbString>(param_index_for_type(p, None).unwrap(), render_params.clip_time()).unwrap().get().to_owned())
+                if let Some(ind) = param_index_for_type(p, None) {
+                    Ok(filter.param_arbitrary_data::<ArbString>(ind, render_params.clip_time()).unwrap().get().to_owned())
+                } else {
+                    Ok(String::new())
+                }
             }
         }
     }
@@ -201,9 +205,13 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 Ok(x.get(p)?.as_checkbox()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
-                    Ok(pr::Param::Bool(x)) => Ok(x),
-                    _ => Ok(false)
+                if let Some(ind) = param_index_for_type(p, None) {
+                    match filter.param(ind, render_params.clip_time()) {
+                        Ok(pr::Param::Bool(x)) => Ok(x),
+                        _ => Ok(false)
+                    }
+                } else {
+                    Ok(false)
                 }
             }
         }
@@ -241,9 +249,13 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 Ok(x.get(p)?.as_float_slider()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), render_params.clip_time()) {
-                    Ok(pr::Param::Float64(x)) => Ok(x),
-                    _ => Err("Param not found".into())
+                if let Some(ind) = param_index_for_type(p, None) {
+                    match filter.param(ind, render_params.clip_time()) {
+                        Ok(pr::Param::Float64(x)) => Ok(x),
+                        _ => Err("Param not found".into())
+                    }
+                } else {
+                    Err("Param not found".into())
                 }
             }
         }
@@ -326,9 +338,13 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_float_slider()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
-                    Ok(pr::Param::Float64(x)) => Ok(x),
-                    _ => Err("Param not found".into())
+                if let Some(ind) = param_index_for_type(p, None) {
+                    match filter.param(ind, ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
+                        Ok(pr::Param::Float64(x)) => Ok(x),
+                        _ => Err("Param not found".into())
+                    }
+                } else {
+                    Err("Param not found".into())
                 }
             }
         }
@@ -346,9 +362,13 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 Ok(x.get_at(p, Some(ae_time), Some(in_data.time_step()), Some(in_data.time_scale()))?.as_checkbox()?.value())
             }
             ParamsInner::Premiere((filter, render_params)) => {
-                match filter.param(param_index_for_type(p, None).unwrap(), ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
-                    Ok(pr::Param::Bool(x)) => Ok(x),
-                    _ => Ok(false)
+                if let Some(ind) = param_index_for_type(p, None) {
+                match filter.param(ind, ticks_from_timetype(time, render_params.render_ticks_per_frame())) {
+                        Ok(pr::Param::Bool(x)) => Ok(x),
+                        _ => Ok(false)
+                    }
+                } else {
+                    Ok(false)
                 }
             }
         }
