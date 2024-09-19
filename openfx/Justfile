@@ -65,6 +65,8 @@ deploy:
     codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/Gyroflow.ofx.bundle
     codesign -vvvv --deep --verify gyroflow-ofx-macos/Gyroflow.ofx.bundle
 
+    zip -r Gyroflow-Adobe-macos.zip "gyroflow-ofx-macos/"
+
     ln -sf /Library/OFX/Plugins "gyroflow-ofx-macos/"
     hdiutil create "Gyroflow-OpenFX-macos.dmg" -volname "Gyroflow OpenFX plugin" -fs HFS+ -srcfolder "gyroflow-ofx-macos/" -ov -format UDZO -imagekey zlib-level=9
 
