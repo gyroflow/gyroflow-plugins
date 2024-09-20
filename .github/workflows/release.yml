@@ -80,10 +80,12 @@ jobs:
           sudo chown -R $(id -u):$(id -g) ${{ github.workspace }}/target
 
       - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type != 'macos' }}
         with:
           name: Gyroflow-OpenFX-${{ matrix.targets.type }}
           path: target/Gyroflow-OpenFX*
       - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type != 'macos' }}
         with:
           name: Gyroflow-Adobe-${{ matrix.targets.type }}
           path: target/Gyroflow-Adobe-*
@@ -91,6 +93,28 @@ jobs:
         with:
           name: Gyroflow-frei0r-${{ matrix.targets.type }}
           path: target/libgyroflow_frei0r*
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type == 'macos' }}
+        with:
+          name: Gyroflow-OpenFX-${{ matrix.targets.type }}
+          path: target/Gyroflow-OpenFX-macos.dmg
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type == 'macos' }}
+        with:
+          name: Gyroflow-Adobe-${{ matrix.targets.type }}
+          path: target/Gyroflow-Adobe-macos.dmg
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type == 'macos' }}
+        with:
+          name: Gyroflow-OpenFX-${{ matrix.targets.type }}-zip
+          path: target/Gyroflow-OpenFX-macos.zip
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.targets.type == 'macos' }}
+        with:
+          name: Gyroflow-Adobe-${{ matrix.targets.type }}-zip
+          path: target/Gyroflow-Adobe-macos.zip
 
   github_release:
     name: Create GitHub release
