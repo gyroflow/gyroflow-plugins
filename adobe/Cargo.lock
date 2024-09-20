@@ -1572,7 +1572,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=30a4179#30a41795482138657fd90eda0f25c43d5e8fe299"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=ce817b9#ce817b903f03ed195c7521ef894b481575720d13"
 dependencies = [
  "ahrs",
  "akaze",
@@ -2916,9 +2916,9 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.36.1"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96a05e2e8efddfa51a84ca47cec303fac86c8541b686d37cac5efc0e094417bc"
+checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
 dependencies = [
  "memchr",
 ]
@@ -3466,7 +3466,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=30a4179#30a41795482138657fd90eda0f25c43d5e8fe299"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=ce817b9#ce817b903f03ed195c7521ef894b481575720d13"
 dependencies = [
  "spirv-std",
 ]
