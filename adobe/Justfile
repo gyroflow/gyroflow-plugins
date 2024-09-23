@@ -70,7 +70,7 @@ deploy:
     codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-adobe-macos/Gyroflow.plugin
     codesign -vvvv --deep --verify gyroflow-adobe-macos/Gyroflow.plugin
 
-    push gyroflow-adobe-macos
+    pushd gyroflow-adobe-macos
         zip -r Gyroflow-Adobe-macos.zip Gyroflow.plugin
     popd
 
