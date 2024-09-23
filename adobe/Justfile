@@ -70,7 +70,9 @@ deploy:
     codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-adobe-macos/Gyroflow.plugin
     codesign -vvvv --deep --verify gyroflow-adobe-macos/Gyroflow.plugin
 
-    zip -r Gyroflow-Adobe-macos.zip "gyroflow-adobe-macos/Gyroflow.plugin"
+    push gyroflow-adobe-macos
+        zip -r Gyroflow-Adobe-macos.zip Gyroflow.plugin
+    popd
 
     ln -sf "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/" "gyroflow-adobe-macos/"
     hdiutil create "Gyroflow-Adobe-macos.dmg" -volname "Gyroflow Adobe plugin" -fs HFS+ -srcfolder "gyroflow-adobe-macos/" -ov -format UDZO -imagekey zlib-level=9
