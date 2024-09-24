@@ -312,8 +312,8 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
     }
     fn get_f64_at_time(&self, p: Params, time: TimeType) -> PluginResult<f64> {
         if p == Params::VideoSpeed {
-            if self.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() && !self.stored.read().speed_per_frame.is_empty() {
-                let stored = self.stored.read();
+            let stored = self.stored.read();
+            if self.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() && !stored.speed_per_frame.is_empty() {
                 let frame = match time {
                     TimeType::Frame(x) => x as usize,
                     TimeType::FrameOrMicrosecond((Some(x), _)) => x as usize,
@@ -321,6 +321,8 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 };
                 if let Some(v) = stored.speed_per_frame.get(frame) {
                     return Ok(*v);
+                } else {
+                    return Ok(*stored.speed_per_frame.last().unwrap());
                 }
             } else {
                 return Ok(100.0);

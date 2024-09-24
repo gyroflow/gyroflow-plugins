@@ -440,8 +440,7 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::OutputHeight, loaded);
         let _ = params.set_enabled(Params::OutputSizeToTimeline, loaded);
         let _ = params.set_enabled(Params::OutputSizeSwap, loaded);
-        let _ = params.set_bool(Params::Status, loaded);
-        let _ = params.set_label(Params::Status, if loaded { "OK" } else { "Project not loaded" });
+        let _ = params.set_string(Params::Status, if loaded { "OK" } else { "Project not loaded" });
         let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
     }
 
@@ -620,7 +619,7 @@ impl GyroflowPluginBaseInstance {
                         } else {
                             log::error!("An error occured: {e:?}");
                             self.update_loaded_state(params, false);
-                            params.set_label(Params::Status, "Failed to load file info!")?;
+                            params.set_string(Params::Status, "Failed to load file info!")?;
                             params.set_hint(Params::Status, &format!("Error loading {path}: {e:?}."))?;
                             if open_gyroflow_if_no_data {
                                 GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
@@ -784,10 +783,10 @@ impl GyroflowPluginBaseInstance {
     }
 
     pub fn set_status(&mut self, params: &mut dyn GyroflowPluginParams, status: &str, hint: &str, ok: bool) {
-        let _ = params.set_label(Params::Status, status);
+        let _ = params.set_string(Params::Status, status);
         let _ = params.set_hint(Params::Status, hint);
-        if params.get_bool(Params::Status).unwrap_or_default() != ok {
-            let _ = params.set_bool(Params::Status, ok);
+        if params.get_string(Params::Status).unwrap_or_default() != status {
+            let _ = params.set_string(Params::Status, status);
             if ok {
                 self.update_loaded_state(params, ok);
             }
@@ -920,7 +919,7 @@ impl GyroflowPluginBaseInstance {
                 Params::Rotation | Params::InputRotation | Params::VideoSpeed |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
-                    params.set_label(Params::Status, "Calculating...")?;
+                    params.set_string(Params::Status, "Calculating...")?;
                     if !self.ever_changed {
                         self.ever_changed = true;
                         params.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
@@ -950,7 +949,7 @@ impl GyroflowPluginBaseInstance {
                             _ => { }
                         }
                     }
-                    params.set_label(Params::Status, "OK")?;
+                    params.set_string(Params::Status, "OK")?;
                 },
                 _ => { }
             }
@@ -965,6 +964,13 @@ impl GyroflowPluginBaseInstance {
 
         Ok(())
     }
+}
+
+pub fn hash_string(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
 }
 
 impl std::str::FromStr for Params {

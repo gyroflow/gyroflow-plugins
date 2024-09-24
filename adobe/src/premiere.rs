@@ -95,7 +95,14 @@ impl pr::GpuFilter for PremiereGPU {
                 let mut params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
 
                 if params.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() {
-                    if let Ok(pr::PropertyData::Keyframes(_)) = filter.video_segment_suite.node_property(clip_node, pr::Property::Clip_TimeRemapping) {
+                    let kf = if let Ok(pr::PropertyData::Keyframes(kf)) = filter.video_segment_suite.node_property(clip_node, pr::Property::Clip_TimeRemapping) {
+                        kf.0.clone()
+                    } else {
+                        String::new()
+                    };
+
+                    let hash = gyroflow_plugin_base::hash_string(&kf);
+                    if inst.stored.read().speed_checksum != hash {
                         if let Ok(pr::PropertyData::Time(media_fps)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamFrameRate) {
                             let fps = ticks_per_sec / media_fps as f64;
 
@@ -123,7 +130,9 @@ impl pr::GpuFilter for PremiereGPU {
                                 frame += 1;
                                 if frame > 5_000_000 { break; }
                             }
-                            inst.stored.write().speed_per_frame = speed_per_frame;
+                            let mut stored = inst.stored.write();
+                            stored.speed_per_frame = speed_per_frame;
+                            stored.speed_checksum = hash;
                         }
                     }
                 }
@@ -141,10 +150,34 @@ impl pr::GpuFilter for PremiereGPU {
                 let key = format!("{path}{disable_stretch}{instance_id}");
                 // log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
 
+                let mut trim_range = None;
+                if let Ok(pr::PropertyData::Int64(start)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InPointMediaTimeAsTicks) {
+                    if let Ok(pr::PropertyData::Int64(end)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_OutPointMediaTimeAsTicks) {
+                        let start = filter.video_segment_suite.transform_node_time(clip_node, start)?;
+                        let end   = filter.video_segment_suite.transform_node_time(clip_node, end)?;
+                        trim_range = Some((start as f64 / ticks_per_sec, end as f64 / ticks_per_sec));
+                    }
+                }
+
+                // let time_interpolation_type = if let Ok(pr::PropertyData::Int32(num)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamTimeInterpolationType) { num } else { 0 };
+
                 let base_inst = inst.gyroflow.as_mut().unwrap();
                 base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
 
                 if let Ok(stab) = base_inst.stab_manager(&mut params, &super::global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
+                    {
+                        let duration_ms = stab.params.read().duration_ms;
+                        let old_range = stab.trim_ranges().first().cloned().unwrap_or((0.0, 1.0));
+                        let old_range_ms = ((old_range.0 * duration_ms).round() as i64, (old_range.1 * duration_ms).round() as i64);
+                        let new_range = trim_range.unwrap_or((0.0, duration_ms / 1000.0));
+                        let new_range_ms = ((new_range.0 * 1000.0).round() as i64, (new_range.1 * 1000.0).round() as i64);
+                        if old_range_ms != new_range_ms {
+                            log::info!("Trim range changed: {:?} != {:?}", old_range_ms, new_range_ms);
+
+                            stab.set_trim_ranges(vec![((new_range.0 * 1000.0) / duration_ms, (new_range.1 * 1000.0) / duration_ms)]);
+                            stab.invalidate_blocking_smoothing();
+                        }
+                    }
                     let fps = stab.params.read().fps;
 
                     let fps_ticks = inst.stored.read().media_fps_ticks;

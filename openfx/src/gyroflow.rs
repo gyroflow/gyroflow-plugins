@@ -29,6 +29,7 @@ pub fn frame_from_timetype(time: TimeType) -> f64 {
 
 define_params!(ParamHandler {
     strings: [
+        Status              => status:           ParamHandle<String>,
         InstanceId          => instance_id:      ParamHandle<String>,
         ProjectData         => project_data:     ParamHandle<String>,
         EmbeddedLensProfile => embedded_lens:    ParamHandle<String>,
@@ -41,7 +42,6 @@ define_params!(ParamHandler {
     ],
     bools: [
         DisableStretch        => disable_stretch:         ParamHandle<bool>,
-        Status                => status:                  ParamHandle<bool>,
         ToggleOverview        => toggle_overview:         ParamHandle<bool>,
         DontDrawOutside       => dont_draw_outside:       ParamHandle<bool>,
         IncludeProjectData    => include_project_data:    ParamHandle<bool>,
@@ -519,7 +519,8 @@ impl Execute for GyroflowPlugin {
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Text { id, label, hint } => {
-                            let mut param = param_set.param_define_boolean(id)?;
+                            let mut param = param_set.param_define_string(id)?;
+                            param.set_string_type(ParamStringType::SingleLine)?;
                             param.set_label(label)?;
                             param.set_hint(hint)?;
                             param.set_enabled(false)?;
