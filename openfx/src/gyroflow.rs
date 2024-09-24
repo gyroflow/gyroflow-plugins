@@ -183,7 +183,7 @@ impl Execute for GyroflowPlugin {
                 if let Ok(range) = instance_data.source_clip.get_frame_range() {
                     if range.max > 0.0 {
                         if (frame_number - range.max).abs() > 2.0 {
-                            speed_stretch = ((frame_number / range.max) * 100.0).round() / 100.0;
+                            speed_stretch = (((frame_number / range.max) * (src_fps / fps)) * 100.0).round() / 100.0;
                         }
                     }
                 }
@@ -195,10 +195,13 @@ impl Execute for GyroflowPlugin {
                     instance_data.plugin.set_status(&mut instance_data.params, "OK", "OK", true);
                 }
 
-                speed_stretch *= src_fps / fps;
-
                 let mut time = time;
                 let mut timestamp_us = ((time / src_fps * 1_000_000.0) * speed_stretch).round() as i64;
+
+                if (src_fps - fps).abs() > 0.01 {
+                    let frame = (time / src_fps) * fps * speed_stretch;
+                    timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
+                }
 
                 let source_timestamp_us = params.get_source_timestamp_at_ramped_timestamp(timestamp_us);
                 drop(params);
@@ -206,6 +209,10 @@ impl Execute for GyroflowPlugin {
                 if source_timestamp_us != timestamp_us {
                     time = (source_timestamp_us as f64 / speed_stretch / 1_000_000.0 * src_fps).round();
                     timestamp_us = ((time / src_fps * 1_000_000.0) * speed_stretch).round() as i64;
+                    if (src_fps - fps).abs() > 0.01 {
+                        let frame = (time / src_fps) * fps * speed_stretch;
+                        timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
+                    }
                 }
 
                 let source_image = if in_args.get_opengl_enabled().unwrap_or_default() {
