@@ -648,7 +648,7 @@ impl Execute for GyroflowPlugin {
             }
 
             Load => {
-				self.gyroflow_plugin.initialize_log();
+				self.gyroflow_plugin.initialize_log("openfx");
                 OK
             },
 

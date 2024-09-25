@@ -95,33 +95,16 @@ impl GyroflowPluginBase {
         log::info!("GyroflowPluginBase::deinitialize_gpu_context");
     }
 
-    pub fn initialize_log(&mut self) {
+    pub fn initialize_log(&mut self, name: &str) {
         LOG_INITIALIZED.with(|x| {
             if !x.get() {
                 log_panics::init();
 
-                #[cfg(target_os = "windows")]
-                win_dbg_logger::init();
+                // #[cfg(target_os = "windows")] { win_dbg_logger::init(); }
 
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
-                let _ = oslog::OsLogger::new("xyz.gyroflow")
-                    .category_level_filter("ofx", log::LevelFilter::Error)
-                    .category_level_filter("naga", log::LevelFilter::Error)
-                    .category_level_filter("wgpu", log::LevelFilter::Error)
-                    .category_level_filter("akaze", log::LevelFilter::Error)
-                    .category_level_filter("mp4parse", log::LevelFilter::Error)
-                    .init();
+                let tmp_log = std::env::temp_dir().join(format!("gyroflow-{name}.log"));
 
-                log::set_max_level(log::LevelFilter::Debug);
-
-                /*let mut tmp_log = std::env::temp_dir();
-                tmp_log.push("gyroflow-ofx.log");
-
-                let log_path = if let Ok(path) = effect_properties.get_file_path() {
-                    std::path::Path::new(&path).with_extension("log")
-                } else {
-                    tmp_log.clone()
-                };
+                let log_path = gyroflow_core::settings::data_dir().join(format!("gyroflow-{name}.log"));
                 let log_config = [ "mp4parse", "wgpu", "naga", "akaze", "ureq", "rustls", "ofx" ]
                     .into_iter()
                     .fold(simplelog::ConfigBuilder::new(), |mut cfg, x| { cfg.add_filter_ignore_str(x); cfg })
@@ -129,19 +112,18 @@ impl GyroflowPluginBase {
 
                 if let Ok(file_log) = std::fs::File::create(&log_path) {
                     let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
-                    self.log_initialized = true;
+                    x.set(true);
                 } else if let Ok(file_log) = std::fs::File::create(&tmp_log) {
                     let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
-                    self.log_initialized = true;
+                    x.set(true);
                 } else if cfg!(target_os = "linux") {
-                    if let Ok(file_log) = std::fs::File::create("/tmp/gyroflow-ofx.log") {
+                    if let Ok(file_log) = std::fs::File::create(&format!("/tmp/gyroflow-{name}.log")) {
                         let _ = simplelog::WriteLogger::init(log::LevelFilter::Debug, log_config, file_log);
-                        self.log_initialized = true;
+                        x.set(true);
                     } else {
                         eprintln!("Failed to create log file: {log_path:?}, {tmp_log:?}, /tmp/gyroflow-ofx.log");
                     }
-                }*/
-                x.set(true);
+                }
             }
         });
     }
@@ -537,7 +519,6 @@ impl GyroflowPluginBaseInstance {
                 self.managers.put(key.to_owned(), stab.clone());
             }
             self.set_keyframe_provider(&stab);
-            log::info!("key found: {key}");
             stab
         } else {
             log::info!("new stab manager for key: {key}");
