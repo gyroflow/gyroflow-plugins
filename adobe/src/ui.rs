@@ -65,6 +65,9 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
         // Draw status
         if event.param_index() == params.index(Params::Status).unwrap_or_default() {
             let status = get_str(params, inst, Params::Status)?;
+            let proj   = get_str2(inst, Params::LoadedProject).unwrap_or("---".to_owned());
+            let lens   = get_str2(inst, Params::LoadedLens).unwrap_or("---".to_owned());
+            let preset = get_str2(inst, Params::LoadedPreset).unwrap_or_default();
 
             if !status.is_empty() {
                 let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
@@ -78,27 +81,23 @@ pub fn draw(_in_data: &ae::InData, params: &mut ae::Parameters<Params>, event: &
                     ae::drawbot::ColorRgba { red: 0.95, green: 0.15, blue: 0.15, alpha: 1.0 } // Red
                 };
                 let string_brush = supplier.new_brush(&text_color)?;
-                let origin = ae::drawbot::PointF32 {
+                let mut origin = ae::drawbot::PointF32 {
                     x: current_frame.left as f32,
                     y: current_frame.top as f32 + 10.0,
                 };
 
                 surface.draw_string(&string_brush, &font, &status, &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+
+                let string_brush = supplier.new_brush(&ae::drawbot::ColorRgba { red: 0.8, green: 0.8, blue: 0.8, alpha: 1.0 })?;
+                origin.y += 15.0;
+                surface.draw_string(&string_brush, &font, &format!("Project: {proj}"),  &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+                origin.y += 15.0;
+                surface.draw_string(&string_brush, &font, &format!("Lens: {lens}"),     &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+                if !preset.is_empty() {
+                    origin.y += 15.0;
+                    surface.draw_string(&string_brush, &font, &format!("Preset: {preset}"), &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
+                }
             }
-        }
-
-        // Draw project path
-        if event.param_index() == params.index(Params::ProjectPath).unwrap_or_default() {
-            let path = get_str(params, inst, Params::ProjectPath)?;
-
-            let font = supplier.new_default_font(supplier.default_font_size()? * 0.9)?;
-            let string_brush = supplier.new_brush(&ae::drawbot::ColorRgba { red: 0.8, green: 0.8, blue: 0.8, alpha: 1.0 })?;
-            let origin = ae::drawbot::PointF32 {
-                x: current_frame.left as f32,
-                y: current_frame.top as f32 + 10.0,
-            };
-
-            surface.draw_string(&string_brush, &font, &path, &origin, ae::drawbot::TextAlignment::Left, ae::drawbot::TextTruncation::None, 0.0)?;
         }
     }
     event.set_event_out_flags(ae::EventOutFlags::HANDLED_EVENT);
@@ -124,12 +123,18 @@ pub fn acquire_background_color() -> ae::drawbot::ColorRgba {
 fn get_str(params: &ae::Parameters<Params>, inst: &mut CrossThreadInstance, key: Params) -> Result<String, ae::Error> {
     let mut value = params.get(key)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
     if value.is_empty() {
-        let _self = inst.get().unwrap();
-        if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
-            if let Some(v) = _self.stored.read().pending_params_str.get(&key) {
-                value = v.clone();
-            }
-        };
+        if let Ok(v2) = get_str2(inst, key) {
+            value = v2;
+        }
     }
     Ok(value)
+}
+fn get_str2(inst: &mut CrossThreadInstance, key: Params) -> Result<String, ae::Error> {
+    let _self = inst.get().unwrap();
+    if let Some(_self) = _self.try_read_for(std::time::Duration::from_millis(300)) {
+        if let Some(v) = _self.stored.read().pending_params_str.get(&key) {
+            return Ok(v.clone());
+        }
+    };
+    Err(ae::Error::InvalidParms)
 }

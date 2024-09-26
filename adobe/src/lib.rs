@@ -523,7 +523,55 @@ impl CrossThreadInstance {
                 self.id = fastrand::u64(..);
             }*/
 
-            let _ = inst.stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, (0, 0), false);
+            if let Ok(stab) = inst.stab_manager(&mut params, &plugin.global.gyroflow.manager_cache, (0, 0), false) {
+                if plugin.in_data.is_after_effects() && param == Params::CreateCamera {
+                    for (org_cam, smooth_cam, name) in [(true, false, "Original camera"), (false, true, "Smoothed camera")] {
+                        let fields = format!("{{ \"original\": {{ \"euler_angles\": {org_cam} }}, \"stabilized\": {{ \"euler_angles\": {smooth_cam} }}, \"zooming\": {{ }} }}");
+                        let script = gyroflow_core::gyro_export::export_gyro_data("camera.jsx", &fields, &stab);
+
+                        let plugin_id = unsafe { AEGP_PLUGIN_ID };
+                        let comp = plugin.in_data.effect().layer()?.parent_comp()?;
+                        let _ = (|| -> Option<()> {
+                            let data: serde_json::Value = serde_json::from_str(&script.split(";").next()?.replace("var data = ", "")).ok()?;
+
+                            let time_scale = plugin.in_data.time_scale();
+                            let frame_times = data.get("frame_times")?.as_array()?.into_iter().filter_map(|x| {
+                                Some(Time { value: (x.as_f64()? * time_scale as f64).round() as _, scale: time_scale })
+                            }).collect::<Vec<Time>>();
+
+                            let orientations = data.get("orientations")?.as_array()?;
+                            let cam = comp.create_camera(name, ae::FloatPoint { x: 0.0, y: 0.0 }.into()).ok()?;
+                            if org_cam {
+                                cam.set_flag(ae::aegp::LayerFlags::VIDEO_ACTIVE, false).ok()?;
+                            }
+                            if let Ok(o) = cam.new_layer_stream(plugin_id, LayerStream::Orientation) {
+                                let kf = o.keyframes().ok()?;
+                                let mut kfs = kf.start_add_keyframes().ok()?;
+                                for (i, time) in frame_times.iter().enumerate() {
+                                    let value = orientations.get(i)?.as_array()?;
+
+                                    let ind = kfs.add_keyframes(ae::aegp::TimeMode::LayerTime, *time).ok()?;
+                                    kfs.set_add_keyframe(ind, o.as_ptr(), StreamValue::ThreeD { x: value.get(0)?.as_f64()?, y: value.get(1)?.as_f64()?, z: value.get(2)?.as_f64()? }).ok()?;
+                                }
+                            }
+                            if let Ok(o) = cam.new_layer_stream(plugin_id, LayerStream::Zoom) {
+                                let kf = o.keyframes().ok()?;
+                                let mut kfs = kf.start_add_keyframes().ok()?;
+                                if let Some(zooms) = data.get("zooms").and_then(|x| x.as_array()) {
+                                    for (i, time) in frame_times.iter().enumerate() {
+                                        let ind = kfs.add_keyframes(ae::aegp::TimeMode::LayerTime, *time).ok()?;
+                                        kfs.set_add_keyframe(ind, o.as_ptr(), StreamValue::OneD(zooms.get(i)?.as_f64()?)).ok()?;
+                                    }
+                                } else if let Some(zoom) = data.get("zoom").and_then(|x| x.as_f64()) {
+                                    let ind = kfs.add_keyframes(ae::aegp::TimeMode::LayerTime, Time { value: plugin.in_data.current_time(), scale: time_scale }).ok()?;
+                                    kfs.set_add_keyframe(ind, o.as_ptr(), StreamValue::OneD(zoom)).ok()?;
+                                }
+                            }
+                            Some(())
+                        })();
+                    }
+                }
+            }
         }
 
         Ok(())

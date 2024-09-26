@@ -39,6 +39,9 @@ define_params!(ParamHandler {
         ReloadProject       => reload_project:   ParamHandle<String>,
         OutputSizeSwap      => output_swap:      ParamHandle<String>,
         OutputSizeToTimeline=> output_size_fit:  ParamHandle<String>,
+        LoadedProject       => loaded_project:   ParamHandle<String>,
+        LoadedPreset        => loaded_preset:    ParamHandle<String>,
+        LoadedLens          => loaded_lens:      ParamHandle<String>,
     ],
     bools: [
         DisableStretch        => disable_stretch:         ParamHandle<bool>,
@@ -409,6 +412,10 @@ impl Execute for GyroflowPlugin {
                         output_swap:              param_set.parameter("OutputSizeSwap")?,
                         output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
 
+                        loaded_project:           param_set.parameter("LoadedProject")?,
+                        loaded_lens:              param_set.parameter("LoadedLens")?,
+                        loaded_preset:            param_set.parameter("LoadedPreset")?,
+
                         fields: Default::default(),
                     },
                     plugin: GyroflowPluginBaseInstance {
@@ -436,6 +443,17 @@ impl Execute for GyroflowPlugin {
                 let mut instance_id = instance_data.params.get_string(Params::InstanceId).unwrap_or_default();
                 instance_data.plugin.initialize_instance_id(&mut instance_id);
                 let _ = instance_data.params.set_string(Params::InstanceId, &instance_id);
+
+                let props: EffectInstance = effect.properties()?;
+                match props.get_resolve_page().as_deref() {
+                    Ok("Edit") | Ok("Color") => {
+                        let _ = instance_data.params.output_width.set_secret(true);
+                        let _ = instance_data.params.output_height.set_secret(true);
+                        let _ = instance_data.params.output_swap.set_secret(true);
+                        let _ = instance_data.params.output_size_fit.set_secret(true);
+                    }
+                    _ => { }
+                }
 
                 effect.set_instance_data(instance_data)?;
 
@@ -508,6 +526,7 @@ impl Execute for GyroflowPlugin {
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Button { id, label, hint } => {
+                            if id == "CreateCamera" { return OK; }
                             if id == "LoadCurrent" && !CurrentFileInfo::is_available() {
                                 return OK;
                             }

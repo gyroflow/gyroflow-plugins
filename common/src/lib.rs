@@ -3,7 +3,6 @@ use lru::LruCache;
 use parking_lot::{ Mutex, RwLock };
 use std::cell::Cell;
 use std::sync::{ Arc, atomic::AtomicBool };
-use std::path::{ Path, PathBuf };
 
 pub use gyroflow_core::{ StabilizationManager, keyframes::*, stabilization::*, filesystem, gpu::* };
 pub use gyroflow_core;
@@ -60,6 +59,11 @@ pub enum Params {
     DontDrawOutside,
     IncludeProjectData,
     StabilizationSpeedRamp,
+    InfoGroup, InfoGroupEnd,
+    LoadedProject,
+    LoadedPreset,
+    LoadedLens,
+    CreateCamera,
 }
 
 thread_local! {
@@ -235,26 +239,26 @@ impl GyroflowPluginBase {
                     }
                 }
             } else {
-                rfd::MessageDialog::new().set_description("Unable to find Gyroflow app path. Make sure to run Gyroflow app at least once and that version is at least v1.4.3").show();
+                rfd::MessageDialog::new().set_description("Unable to find Gyroflow app path. Make sure to run Gyroflow app at least once and that version is at least v1.6.0").show();
             }
         }
     }
 
-    pub fn get_param_definitions() -> [ParameterType; 11] {
+    pub fn get_param_definitions() -> [ParameterType; 13] {
         [
             ParameterType::HiddenString { id: "InstanceId" },
+            ParameterType::HiddenString { id: "ProjectPath" },
             ParameterType::HiddenString { id: "ProjectData" },
             ParameterType::HiddenString { id: "EmbeddedLensProfile" },
             ParameterType::HiddenString { id: "EmbeddedPreset" },
             ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", opened: true, parameters: vec![
+                ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
-                ParameterType::TextBox { id: "ProjectPath",       label: "Project file",             hint: "Project file or video file" },
                 ParameterType::Button  { id: "Browse",            label: "Browse",                   hint: "Browse for the Gyroflow project file" },
                 ParameterType::Button  { id: "LoadLens",          label: "Load preset/lens profile", hint: "Browse for the lens profile or a preset" },
                 ParameterType::Button  { id: "OpenGyroflow",      label: "Open Gyroflow",            hint: "Open project in Gyroflow" },
                 ParameterType::Button  { id: "ReloadProject",     label: "Reload project",           hint: "Reload currently loaded project" },
                 ParameterType::Button  { id: "OpenRecentProject", label: "Last saved project",       hint: "Load most recently saved project in the Gyroflow app" },
-                ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
             ] },
             ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", opened: true, parameters: vec![
                 ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 1.0,    max: 300.0, default: 50.0 },
@@ -276,6 +280,7 @@ impl GyroflowPluginBase {
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
                 ParameterType::Checkbox { id: "StabilizationSpeedRamp",label: "Adjust stabilization to speed", hint: "When you speed ramp the clip, let Gyroflow adjust the stabilization amount to the video speed.", default: true },
                 ParameterType::Button   { id: "RecalculateKeyframes",  label: "Recalculate keyframes",         hint: "Recalculate keyframes after adjusting the splines (in Fusion mode)" },
+                ParameterType::Button   { id: "CreateCamera",  label: "Create camera", hint: "Create camera layer" },
             ] },
             ParameterType::Group { id: "OutputSizeGroup", label: "Output size", opened: false, parameters: vec![
                 ParameterType::Slider   { id: "OutputWidth",    label: "Width",  hint: "Width",  min: 1.0, max: 16384.0, default: 3840.0 },
@@ -286,6 +291,11 @@ impl GyroflowPluginBase {
             ParameterType::Checkbox { id: "ToggleOverview",     label: "Stabilization overview",         hint: "Zooms out the view to see the stabilization results. Disable this before rendering.", default: false },
             ParameterType::Checkbox { id: "DontDrawOutside",    label: "Don't draw outside source clip", hint: "When clip and timeline aspect ratio don't match, draw the final image inside the source clip, instead of drawing outside it.", default: false },
             ParameterType::Checkbox { id: "IncludeProjectData", label: "Embed .gyroflow data in plugin", hint: "If you intend to share the project to someone else, the plugin can embed the Gyroflow project data including gyro data inside the video editor project. This way you don't have to share .gyroflow project files. Enabling this option will make the project bigger.", default: false },
+            ParameterType::Group { id: "InfoGroup", label: "Info", opened: true, parameters: vec![
+                ParameterType::Text { id: "LoadedProject",      label: "Loaded project",      hint: "Loaded project or video file" },
+                ParameterType::Text { id: "LoadedPreset",       label: "Loaded preset",       hint: "Loaded preset" },
+                ParameterType::Text { id: "LoadedLens",         label: "Loaded lens profile", hint: "Loaded lens profile" },
+            ] },
         ]
     }
 }
@@ -535,21 +545,6 @@ impl GyroflowPluginBaseInstance {
             }
 
             if !path.ends_with(".gyroflow") {
-                // Try to load from video file
-                // let mut metadata = None;
-                // if path.to_ascii_lowercase().ends_with(".mxf") || path.to_ascii_lowercase().ends_with(".braw") {
-                //     let lock = self.current_file_info.lock();
-                //     if let Some(ref current_file) = *lock {
-                //         metadata = Some(VideoMetadata {
-                //             duration_s: current_file.duration_s,
-                //             fps: current_file.fps,
-                //             width: current_file.width,
-                //             height: current_file.height,
-                //             rotation: 0
-                //         });
-                //     }
-                // }
-
                 match stab.load_video_file(&filesystem::path_to_url(&path), None) {
                     Ok(md) => {
                         if out_size != (0, 0) {
@@ -585,6 +580,7 @@ impl GyroflowPluginBaseInstance {
                             params.set_f64(Params::InputRotation, r)?;
                             stab.params.write().video_rotation = r;
                         }
+                        params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
                         if !stab.gyro.read().file_metadata.read().has_accurate_timestamps && open_gyroflow_if_no_data {
                             GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
                         }
@@ -629,6 +625,7 @@ impl GyroflowPluginBaseInstance {
                     self.update_loaded_state(params, false);
                     format!("load_gyro_data error: {e}")
                 })?;
+                params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
             }
 
             let loaded = {
@@ -662,6 +659,11 @@ impl GyroflowPluginBaseInstance {
                     let keyframes = stab.keyframes.read();
                     let all_keys = keyframes.get_all_keys();
                     params.set_bool(Params::UseGyroflowsKeyframes, !all_keys.is_empty())?;
+                    if let Some(name) = stab.input_file.read().preset_name.clone() {
+                        params.set_string(Params::LoadedPreset, &name)?;
+                    }
+                    params.set_string(Params::LoadedLens, &stab.lens.read().get_display_name())?;
+
                     for k in all_keys {
                         if let Some(keys) = keyframes.get_keyframes(k) {
                             if !keys.is_empty() {
@@ -776,8 +778,7 @@ impl GyroflowPluginBaseInstance {
 
     pub fn browse(current_path: &str) -> String {
         let mut d = rfd::FileDialog::new()
-            .add_filter("Gyroflow project files", &["gyroflow"])
-            .add_filter("Video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv"]);
+            .add_filter("Project and video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv", "gyroflow"]);
         if !current_path.is_empty() {
             if let Some(path) = std::path::Path::new(current_path).parent() {
                 d = d.set_directory(path);
@@ -799,26 +800,11 @@ impl GyroflowPluginBaseInstance {
             }
         }
         if param == Params::LoadLens {
-            let lens_directory = || -> Option<PathBuf> {
-                let exe = GyroflowPluginBase::get_gyroflow_location()?;
-                if cfg!(target_os = "macos") {
-                    let mut path = Path::new(&exe).to_path_buf();
-                    path.push("Contents");
-                    path.push("Resources");
-                    path.push("camera_presets");
-                    Some(path.into())
-                } else {
-                    let mut path = Path::new(&exe).parent()?.to_path_buf();
-                    path.push("camera_presets");
-                    Some(path.into())
-                }
-            }();
+            let lens_directory = gyroflow_core::settings::data_dir().join("lens_profiles");
             log::info!("lens directory: {lens_directory:?}");
 
             let mut d = rfd::FileDialog::new().add_filter("Lens profiles and presets", &["json", "gyroflow"]);
-            if let Some(dir) = lens_directory {
-                d = d.set_directory(dir);
-            }
+            d = d.set_directory(lens_directory);
             if let Some(d) = d.pick_file() {
                 let d = d.display().to_string();
                 if !d.is_empty() {
@@ -828,6 +814,7 @@ impl GyroflowPluginBaseInstance {
                         } else {
                             params.set_string(Params::EmbeddedPreset, &contents)?;
                         }
+                        self.reload_values_from_project = true;
                     }
                     self.clear_stab(&manager_cache);
                 }

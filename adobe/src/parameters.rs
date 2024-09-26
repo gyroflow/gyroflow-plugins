@@ -79,6 +79,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
         }
 
         ParameterType::Button { id, label, .. } => {
+            if id == "CreateCamera" && !params.in_data().is_after_effects() { return; }
             let p = Params::from_str(id).unwrap();
             if p == Params::LoadCurrent { return; }
             params.add_with_flags(p, "", ae::ButtonDef::setup(|f| { f.set_label(label); }), ParamFlag::SUPERVISE | ParamFlag::CANNOT_TIME_VARY, ParamUIFlags::empty()).unwrap();
@@ -91,7 +92,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 param.set_flags(ae::ParamFlag::CANNOT_TIME_VARY);
                 param.set_ui_flags(ae::ParamUIFlags::CONTROL | ae::ParamUIFlags::DO_NOT_ERASE_CONTROL);
                 param.set_ui_width(250);
-                param.set_ui_height(15);
+                param.set_ui_height(15*4);
                 -1
             }).unwrap();
         }
@@ -118,6 +119,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Group { id, label, parameters, opened } => {
+            if id == "InfoGroup" { return; }
             params.add_group(Params::from_str(id).unwrap(), Params::from_str(&format!("{id}End")).unwrap(), label, !opened, |params| {
                 for x in parameters {
                     define_param(params, x, Some(id));
@@ -175,6 +177,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             self.stored.write().instance_id = v.to_owned();
         }
         self.stored.write().pending_params_str.insert(p, v.to_owned());
+        if p == Params::LoadedProject || p == Params::LoadedPreset || p == Params::LoadedLens { return Ok(()); }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 let mut p = x.get_mut(p)?;
