@@ -555,7 +555,7 @@ impl Execute for GyroflowPlugin {
                             param.set_string_type(ParamStringType::SingleLine)?;
                             param.set_label(label)?;
                             param.set_hint(hint)?;
-                            param.set_enabled(false)?;
+                            //param.set_enabled(false)?;
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Slider { id, label, hint, min, max, default } => {
