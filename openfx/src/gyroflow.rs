@@ -102,6 +102,7 @@ struct InstanceData {
 
     params: ParamHandler,
     plugin: GyroflowPluginBaseInstance,
+    supports_output_size: bool,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
@@ -169,6 +170,13 @@ impl Execute for GyroflowPlugin {
                 let output_rect: RectI = output_image.get_region_of_definition()?;
 
                 let stab = instance_data.stab_manager(&self.gyroflow_plugin.manager_cache, output_rect, loading_pending_video_file)?;
+
+                if !instance_data.supports_output_size {
+                    let _ = instance_data.params.output_width.set_enabled(false);
+                    let _ = instance_data.params.output_height.set_enabled(false);
+                    let _ = instance_data.params.output_swap.set_enabled(false);
+                    let _ = instance_data.params.output_size_fit.set_enabled(false);
+                }
 
                 let params = stab.params.read();
                 let fps = params.fps;
@@ -380,6 +388,7 @@ impl Execute for GyroflowPlugin {
                 let mut instance_data = InstanceData {
                     source_clip,
                     output_clip,
+                    supports_output_size: true,
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
                         project_data:             param_set.parameter("ProjectData")?,
@@ -419,40 +428,34 @@ impl Execute for GyroflowPlugin {
                         fields: Default::default(),
                     },
                     plugin: GyroflowPluginBaseInstance {
-                        managers:                       LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
-                        original_output_size:           (0, 0),
-                        original_video_size:            (0, 0),
-                        timeline_size:                  (0, 0),
-                        num_frames:                     0,
-                        fps:                            0.0,
-                        reload_values_from_project:     false,
-                        ever_changed:                   false,
-                        opencl_disabled:                false,
-                        cache_keyframes_every_frame:    true,
-                        framebuffer_inverted:           true,
-                        anamorphic_adjust_size:         true,
-                        has_motion:                     false,
+                        managers:                    LruCache::new(std::num::NonZeroUsize::new(20).unwrap()),
+                        original_output_size:        (0, 0),
+                        original_video_size:         (0, 0),
+                        timeline_size:               (0, 0),
+                        num_frames:                  0,
+                        fps:                         0.0,
+                        reload_values_from_project:  false,
+                        ever_changed:                false,
+                        opencl_disabled:             false,
+                        cache_keyframes_every_frame: true,
+                        framebuffer_inverted:        true,
+                        anamorphic_adjust_size:      true,
+                        has_motion:                  false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
-                            use_gyroflows_keyframes:  param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
-                            cached_keyframes:         KeyframeManager::default()
+                            use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
+                            cached_keyframes:        KeyframeManager::default()
                         })),
                     },
-                    current_file_info:              Arc::new(Mutex::new(None)),
-                    current_file_info_pending:      Arc::new(AtomicBool::new(false)),
+                    current_file_info:         Arc::new(Mutex::new(None)),
+                    current_file_info_pending: Arc::new(AtomicBool::new(false)),
                 };
                 let mut instance_id = instance_data.params.get_string(Params::InstanceId).unwrap_or_default();
                 instance_data.plugin.initialize_instance_id(&mut instance_id);
                 let _ = instance_data.params.set_string(Params::InstanceId, &instance_id);
 
                 let props: EffectInstance = effect.properties()?;
-                match props.get_resolve_page().as_deref() {
-                    Ok("Edit") | Ok("Color") => {
-                        let _ = instance_data.params.output_width.set_secret(true);
-                        let _ = instance_data.params.output_height.set_secret(true);
-                        let _ = instance_data.params.output_swap.set_secret(true);
-                        let _ = instance_data.params.output_size_fit.set_secret(true);
-                    }
-                    _ => { }
+                if matches!(props.get_resolve_page().as_deref(), Ok("Edit") | Ok("Color")) {
+                    instance_data.supports_output_size = false;
                 }
 
                 effect.set_instance_data(instance_data)?;
@@ -464,7 +467,7 @@ impl Execute for GyroflowPlugin {
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
-                if in_args.get_name()? == "Source" {
+                if in_args.get_name()? == "Source" || in_args.get_name()? == "Output"{
                     log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
                     return OK;
                 }
