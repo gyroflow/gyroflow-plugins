@@ -268,6 +268,10 @@ impl Execute for GyroflowPlugin {
                     }
                 }
 
+                if _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas") {
+                    out_rect = None;
+                }
+
                 let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).ok().map(|x| x as f32);
 
                 // log::debug!("src_size: {src_size:?} | src_rect: {src_rect:?}");
@@ -613,11 +617,15 @@ impl Execute for GyroflowPlugin {
                 let supports_cuda   = _plugin_context.get_host().get_cuda_render_supported().unwrap_or_default() == "true";
                 let supports_metal  = _plugin_context.get_host().get_metal_render_supported().unwrap_or_default() == "true";
 
+                log::info!("Host name: {:?}", _plugin_context.get_host().get_name());
                 log::info!("Host supports OpenGL: {:?}", supports_opengl);
                 log::info!("Host supports OpenCL: {:?}", supports_opencl);
                 log::info!("Host supports CUDA: {:?}", supports_cuda);
                 log::info!("Host supports Metal: {:?}", supports_metal);
                 if !supports_opencl && !supports_opengl {
+                    std::env::set_var("NO_OPENCL", "1");
+                }
+                if _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas") {
                     std::env::set_var("NO_OPENCL", "1");
                 }
 
