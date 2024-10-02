@@ -1404,7 +1404,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=3ea0f1a#3ea0f1a5c9dfa8f3a564544fb27e64760078ec69"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=f1bbab5#f1bbab5f3840f6c2ce8fc85e994d68644e7bc41d"
 dependencies = [
  "ahrs",
  "akaze",
@@ -3173,7 +3173,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=3ea0f1a#3ea0f1a5c9dfa8f3a564544fb27e64760078ec69"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=f1bbab5#f1bbab5f3840f6c2ce8fc85e994d68644e7bc41d"
 dependencies = [
  "spirv-std",
 ]
@@ -3430,9 +3430,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-bidi"
-version = "0.3.15"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08f95100a766bf4f8f28f90d77e0a5461bbdb219042e7679bebe79004fed8d75"
+checksum = "5ab17db44d7388991a428b2ee655ce0c212e862eff1768a455c58f9aad6e7893"
 
 [[package]]
 name = "unicode-ident"
