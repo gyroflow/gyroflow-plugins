@@ -188,18 +188,15 @@ impl Execute for GyroflowPlugin {
                     (md.has_accurate_timestamps, !gyro.get_offsets().is_empty())
                 };
 
-                let frame_number = (params.frame_count - 1) as f64;
-
                 let mut speed_stretch = 1.0;
                 if let Ok(range) = instance_data.source_clip.get_frame_range() {
                     if range.max > 0.0 {
-                        if (frame_number - range.max).abs() > 2.0 {
-                            speed_stretch = (((frame_number / range.max) * (src_fps / fps)) * 100.0).round() / 100.0;
-                        }
+                        let duration_at_src_fps = (range.max / src_fps) * 1000.0;
+                        speed_stretch = ((params.duration_ms.round() / duration_at_src_fps.round()) * 100.0).floor() / 100.0;
                     }
                 }
                 if (src_fps - fps).abs() > 0.01 {
-                    instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate!", false);
+                    instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
                 } else if !has_accurate_timestamps && !has_offsets {
                     instance_data.plugin.set_status(&mut instance_data.params, "Not synced. Open in Gyroflow", "Gyro data is not synced with the video, open the video in Gyroflow and add sync points (eg. by doing autosync)", false);
                 } else {
@@ -208,6 +205,8 @@ impl Execute for GyroflowPlugin {
 
                 let mut time = time;
                 let mut timestamp_us = ((time / src_fps * 1_000_000.0) * speed_stretch).round() as i64;
+
+                // log::info!("fps: {fps:?}, src_fps: {src_fps:?}, speed_stretch: {speed_stretch:.6}, time: {time:?}, timestamp_us: {timestamp_us:?}");
 
                 if (src_fps - fps).abs() > 0.01 {
                     let frame = (time / src_fps) * fps * speed_stretch;
