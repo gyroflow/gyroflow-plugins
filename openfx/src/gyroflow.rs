@@ -467,7 +467,7 @@ impl Execute for GyroflowPlugin {
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
-                if in_args.get_name()? == "Source" || in_args.get_name()? == "Output"{
+                if in_args.get_name()? == "Source" || in_args.get_name()? == "Output" {
                     log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
                     return OK;
                 }
