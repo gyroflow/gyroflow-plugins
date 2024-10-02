@@ -19,7 +19,10 @@
     <a href="https://github.com/gyroflow/gyroflow-plugins/issues">Report bug</a> •
     <a href="https://github.com/gyroflow/gyroflow-plugins/issues">Request feature</a>
   </p>
-  <p align="center">    
+  <p align="center">
+    <a href="https://github.com/gyroflow/gyroflow-plugins/releases">
+      <img src="https://img.shields.io/github/downloads/gyroflow/gyroflow-plugins/total" alt="Downloads">
+    </a>
     <a href="https://github.com/gyroflow/gyroflow-plugins/graphs/contributors">
       <img src="https://img.shields.io/github/contributors/gyroflow/gyroflow-plugins?color=dark-green" alt="Contributors">
     </a>
