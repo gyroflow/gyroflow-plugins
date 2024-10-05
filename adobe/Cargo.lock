@@ -619,20 +619,6 @@ name = "bytemuck"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94bbb0ad554ad961ddc5da507a12a29b14e4ae5bda06b19f575a3e6079d2e2ae"
-dependencies = [
- "bytemuck_derive",
-]
-
-[[package]]
-name = "bytemuck_derive"
-version = "1.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc8b54b395f2fcfbb3d90c47b01c7f444d94d05bdeb775811dec868ac3bbc26"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.79",
-]
 
 [[package]]
 name = "byteorder"
@@ -1551,7 +1537,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=f1bbab5#f1bbab5f3840f6c2ce8fc85e994d68644e7bc41d"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=8bd40cc#8bd40cc5bdd35a7a683350c4c7a68fee9f1b8f12"
 dependencies = [
  "ahrs",
  "akaze",
@@ -2099,7 +2085,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=71b4f36#71b4f361e244d8b4be79c67207e19a2c267c73f2"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee0d170#ee0d1703e5f4a267ce9b87d50b824190b45b5a79"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-set",
@@ -3440,7 +3426,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=f1bbab5#f1bbab5f3840f6c2ce8fc85e994d68644e7bc41d"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=8bd40cc#8bd40cc5bdd35a7a683350c4c7a68fee9f1b8f12"
 dependencies = [
  "spirv-std",
 ]
@@ -3500,7 +3486,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 [[package]]
 name = "telemetry-parser"
 version = "0.3.0"
-source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=5914978#59149789958b831b0276214e262db38dc3521574"
+source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=966e187#966e187f70f80a780d711a764a7cff417793e39e"
 dependencies = [
  "argh",
  "byteorder",
@@ -3960,7 +3946,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=71b4f36#71b4f361e244d8b4be79c67207e19a2c267c73f2"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee0d170#ee0d1703e5f4a267ce9b87d50b824190b45b5a79"
 dependencies = [
  "arrayvec 0.7.6",
  "cfg_aliases 0.1.1",
@@ -3984,7 +3970,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=71b4f36#71b4f361e244d8b4be79c67207e19a2c267c73f2"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee0d170#ee0d1703e5f4a267ce9b87d50b824190b45b5a79"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-vec",
@@ -4009,7 +3995,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=71b4f36#71b4f361e244d8b4be79c67207e19a2c267c73f2"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee0d170#ee0d1703e5f4a267ce9b87d50b824190b45b5a79"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.6",
@@ -4017,6 +4003,7 @@ dependencies = [
  "bit-set",
  "bitflags 2.6.0",
  "block",
+ "bytemuck",
  "cfg_aliases 0.1.1",
  "core-graphics-types",
  "glow",
@@ -4052,7 +4039,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=71b4f36#71b4f361e244d8b4be79c67207e19a2c267c73f2"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=ee0d170#ee0d1703e5f4a267ce9b87d50b824190b45b5a79"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
