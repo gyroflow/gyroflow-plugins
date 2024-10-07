@@ -200,6 +200,12 @@ impl Execute for GyroflowPlugin {
                         speed_stretch = ((params.duration_ms.round() / duration_at_src_fps.round()) * 100.0).floor() / 100.0;
                     }
                 }
+
+                // This should cover most cases by default, and for the rest users will use Fusion
+                if speed_stretch == 1.01 || speed_stretch == 0.99 {
+                    speed_stretch = 1.0;
+                }
+
                 if (src_fps - fps).abs() > 0.01 {
                     instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
                 } else if !has_accurate_timestamps && !has_offsets {
