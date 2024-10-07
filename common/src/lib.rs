@@ -64,6 +64,7 @@ pub enum Params {
     LoadedPreset,
     LoadedLens,
     CreateCamera,
+    Interpolation,
 }
 
 thread_local! {
@@ -287,6 +288,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "OutputHeight",   label: "Height", hint: "Height", min: 1.0, max: 16384.0, default: 2160.0 },
                 ParameterType::Button   { id: "OutputSizeToTimeline", label: "Fit to timeline", hint: "Set the output size to the timeline dimensions" },
                 ParameterType::Button   { id: "OutputSizeSwap",  label: "Swap", hint: "Swap width and height" },
+                ParameterType::Select   { id: "Interpolation",   label: "Interpolation", hint: "Scaling interpolation method", options: vec!["Lanczos4", "RobidouxSharp", "Bilinear", "Bicubic", "Robidoux", "Mitchell", "CatmullRom"], default: "Lanczos4" },
             ] },
             ParameterType::Checkbox { id: "ToggleOverview",     label: "Stabilization overview",         hint: "Zooms out the view to see the stabilization results. Disable this before rendering.", default: false },
             ParameterType::Checkbox { id: "DontDrawOutside",    label: "Don't draw outside source clip", hint: "When clip and timeline aspect ratio don't match, draw the final image inside the source clip, instead of drawing outside it.", default: false },
@@ -307,7 +309,8 @@ pub enum ParameterType {
     Slider       { id: &'static str, label: &'static str, hint: &'static str, min: f64, max: f64, default: f64 },
     Checkbox     { id: &'static str, label: &'static str, hint: &'static str, default: bool },
     Button       { id: &'static str, label: &'static str, hint: &'static str },
-    Group        { id: &'static str, label: &'static str, opened: bool, parameters: Vec<ParameterType> }
+    Group        { id: &'static str, label: &'static str, opened: bool, parameters: Vec<ParameterType> },
+    Select       { id: &'static str, label: &'static str, hint: &'static str, options: Vec<&'static str>, default: &'static str },
 }
 
 #[derive(Debug, Clone)]
@@ -330,6 +333,8 @@ pub trait GyroflowPluginParams {
     fn get_bool_at_time(&self, param: Params, time: TimeType) -> PluginResult<bool>;
     fn set_string(&mut self, param: Params, value: &str) -> PluginResult<()>;
     fn get_string(&self, param: Params) -> PluginResult<String>;
+    fn set_i32(&mut self, param: Params, value: i32) -> PluginResult<()>;
+    fn get_i32(&self, param: Params) -> PluginResult<i32>;
 
     fn is_keyframed(&self, param: Params) -> bool;
     fn get_keyframes(&self, param: Params) -> Vec<(TimeType, f64)>;
@@ -543,9 +548,23 @@ impl GyroflowPluginBaseInstance {
                     }
                 }
             }
+            {
+                let mut stab = stab.stabilization.write();
+                stab.share_wgpu_instances = true;
+                stab.interpolation = match params.get_i32(Params::Interpolation) {
+                    Ok(1) => gyroflow_core::stabilization::Interpolation::RobidouxSharp,
+                    Ok(2) => gyroflow_core::stabilization::Interpolation::Bilinear,
+                    Ok(3) => gyroflow_core::stabilization::Interpolation::Bicubic,
+                    Ok(4) => gyroflow_core::stabilization::Interpolation::Robidoux,
+                    Ok(5) => gyroflow_core::stabilization::Interpolation::Mitchell,
+                    Ok(6) => gyroflow_core::stabilization::Interpolation::CatmullRom,
+                    _     => gyroflow_core::stabilization::Interpolation::Lanczos4,
+                };
+                log::info!("Interpolation: {:?}", stab.interpolation);
+            }
 
             if !path.ends_with(".gyroflow") {
-                match stab.load_video_file(&filesystem::path_to_url(&path), None) {
+                match stab.load_video_file(&filesystem::path_to_url(&path), None, true) {
                     Ok(md) => {
                         if out_size != (0, 0) {
                             stab.params.write().output_size = out_size; // Default to timeline output size
@@ -563,7 +582,7 @@ impl GyroflowPluginBaseInstance {
                         if let Ok(d) = params.get_string(Params::EmbeddedPreset) {
                             if !d.is_empty() {
                                 let mut is_preset = false;
-                                if let Err(e) = stab.import_gyroflow_data(d.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset) {
+                                if let Err(e) = stab.import_gyroflow_data(d.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true) {
                                     rfd::MessageDialog::new()
                                         .set_description(&format!("Failed to load preset: {e:?}"))
                                         .show();
@@ -589,7 +608,7 @@ impl GyroflowPluginBaseInstance {
                         let embedded_data = params.get_string(Params::ProjectData)?;
                         if !embedded_data.is_empty() {
                             let mut is_preset = false;
-                            stab.import_gyroflow_data(embedded_data.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset).map_err(|e| {
+                            stab.import_gyroflow_data(embedded_data.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
                                 self.update_loaded_state(params, false);
                                 format!("load_gyro_data error: {e}")
                             })?;
@@ -621,7 +640,7 @@ impl GyroflowPluginBaseInstance {
                     }
                 };
                 let mut is_preset = false;
-                stab.import_gyroflow_data(project_data.as_bytes(), true, Some(&filesystem::path_to_url(&path)), |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset).map_err(|e| {
+                stab.import_gyroflow_data(project_data.as_bytes(), true, Some(&filesystem::path_to_url(&path)), |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
                     self.update_loaded_state(params, false);
                     format!("load_gyro_data error: {e}")
                 })?;
@@ -655,6 +674,16 @@ impl GyroflowPluginBaseInstance {
 
                     params.set_f64(Params::OutputWidth,            self.original_output_size.0 as f64)?;
                     params.set_f64(Params::OutputHeight,           self.original_output_size.1 as f64)?;
+
+                    params.set_i32(Params::Interpolation, match stab.stabilization.read().interpolation {
+                        gyroflow_core::stabilization::Interpolation::Lanczos4      => 0,
+                        gyroflow_core::stabilization::Interpolation::RobidouxSharp => 1,
+                        gyroflow_core::stabilization::Interpolation::Bilinear      => 2,
+                        gyroflow_core::stabilization::Interpolation::Bicubic       => 3,
+                        gyroflow_core::stabilization::Interpolation::Robidoux      => 4,
+                        gyroflow_core::stabilization::Interpolation::Mitchell      => 5,
+                        gyroflow_core::stabilization::Interpolation::CatmullRom    => 6,
+                    })?;
 
                     let keyframes = stab.keyframes.read();
                     let all_keys = keyframes.get_all_keys();
@@ -717,12 +746,6 @@ impl GyroflowPluginBaseInstance {
 
             stab.init_size();
             stab.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
-
-            {
-                let mut stab = stab.stabilization.write();
-                stab.share_wgpu_instances = true;
-                stab.interpolation = gyroflow_core::stabilization::Interpolation::Lanczos4;
-            }
 
             self.set_keyframe_provider(&stab);
 
@@ -928,6 +951,10 @@ impl GyroflowPluginBaseInstance {
                     v.invalidate_blocking_undistortion();
                 }
             }
+            if param == Params::Interpolation {
+                self.managers.clear();
+                manager_cache.lock().clear();
+            }
         }
 
         Ok(())
@@ -959,6 +986,7 @@ macro_rules! define_params {
         strings: [ $($str_enum:ident  => $str_field:ident: $str_host_type:ty,)* ],
         bools:   [ $($bool_enum:ident => $bool_field:ident: $bool_host_type:ty,)* ],
         f64s:    [ $($f64_enum:ident  => $f64_field:ident: $f64_host_type:ty,)* ],
+        i32s:    [ $($i32_enum:ident  => $i32_field:ident: $i32_host_type:ty,)* ],
 
         get_string:  $gstr_s:ident   $gstr_p:ident                    $gstr_block:block,
         set_string:  $sstr_s:ident   $sstr_p:ident,   $sstr_v:ident   $sstr_block:block,
@@ -966,6 +994,8 @@ macro_rules! define_params {
         set_bool:    $sbool_s:ident  $sbool_p:ident,  $sbool_v:ident  $sbool_block:block,
         get_f64:     $gf64_s:ident   $gf64_p:ident                    $gf64_block:block,
         set_f64:     $sf64_s:ident   $sf64_p:ident,   $sf64_v:ident   $sf64_block:block,
+        get_i32:     $gi32_s:ident   $gi32_p:ident                    $gi32_block:block,
+        set_i32:     $si32_s:ident   $si32_p:ident,   $si32_v:ident   $si32_block:block,
         set_label:   $slabel_s:ident $slabel_p:ident, $slabel_v:ident $slabel_block:block,
         set_hint:    $shint_s:ident  $shint_p:ident,  $shint_v:ident  $shint_block:block,
         set_enabled: $sen_s:ident    $sen_p:ident,    $sen_v:ident    $sen_block:block,
@@ -986,6 +1016,7 @@ macro_rules! define_params {
             $( $str_field: $str_host_type, )*
             $( $bool_field: $bool_host_type, )*
             $( $f64_field: $f64_host_type, )*
+            $( $i32_field: $i32_host_type, )*
 
             pub fields: ParamsAdditionalFields,
         }
@@ -1029,6 +1060,20 @@ macro_rules! define_params {
                 let mut $sf64_s = &mut self.fields;
                 match param {
                     $( Params::$f64_enum => { let $sf64_p = &mut self.$f64_field; let $sf64_v = value; $sf64_block }, )*
+                    _ => panic!("Wrong parameter type"),
+                }
+            }
+            fn get_i32(&self, param: Params) -> $crate::PluginResult<i32> {
+                let $gi32_s = &self.fields;
+                match param {
+                    $( Params::$i32_enum => { let $gi32_p = &self.$i32_field; $gi32_block }, )*
+                    _ => panic!("Wrong parameter type"),
+                }
+            }
+            fn set_i32(&mut self, param: Params, value: i32) -> $crate::PluginResult<()> {
+                let mut $si32_s = &mut self.fields;
+                match param {
+                    $( Params::$i32_enum => { let $si32_p = &mut self.$i32_field; let $si32_v = value; $si32_block }, )*
                     _ => panic!("Wrong parameter type"),
                 }
             }

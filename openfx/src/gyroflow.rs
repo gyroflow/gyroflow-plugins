@@ -67,6 +67,9 @@ define_params!(ParamHandler {
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
     ],
+    i32s: [
+        Interpolation         => interpolation:            ParamHandle<Int>,
+    ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
     set_string:  _s p, v { Ok(p.set_value(v.into())?) },
@@ -74,6 +77,8 @@ define_params!(ParamHandler {
     set_bool:    _s p, v { Ok(p.set_value(v)?) },
     get_f64:     _s p    { Ok(p.get_value() ?) },
     set_f64:     _s p, v { Ok(p.set_value(v)?) },
+    get_i32:     _s p    { Ok(p.get_value() ?) },
+    set_i32:     _s p, v { Ok(p.set_value(v)?) },
     set_label:   _s p, l { Ok(p.set_label(l)?) },
     set_hint:    _s p, h { Ok(p.set_hint(h) ?) },
     set_enabled: _s p, e { Ok(p.set_enabled(e)?) },
@@ -423,6 +428,7 @@ impl Execute for GyroflowPlugin {
                         output_height:            param_set.parameter("OutputHeight")?,
                         output_swap:              param_set.parameter("OutputSizeSwap")?,
                         output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
+                        interpolation:            param_set.parameter("Interpolation")?,
 
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,
@@ -574,6 +580,15 @@ impl Execute for GyroflowPlugin {
                             param.set_label(label)?;
                             param.set_hint(hint)?;
                             param.set_default(default)?;
+                            let _ = param.set_script_name(id);
+                            if let Some(group) = group { param.set_parent(group)?; }
+                        }
+                        ParameterType::Select { id, label, hint, options, default } => {
+                            let mut param = param_set.param_define_choice(id)?;
+                            param.set_label(label)?;
+                            param.set_hint(hint)?;
+                            param.set_default(options.iter().position(|x| *x == default).unwrap_or(0) as i32)?;
+                            param.set_choices(&options)?;
                             let _ = param.set_script_name(id);
                             if let Some(group) = group { param.set_parent(group)?; }
                         }

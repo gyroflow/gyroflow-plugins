@@ -118,6 +118,13 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
                 f.set_label("");
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
+        ParameterType::Select { id, label, options, default, .. } => {
+            params.add_with_flags(Params::from_str(id).unwrap(), label, ae::PopupDef::setup(|f| {
+                f.set_options(&options);
+                f.set_default(options.iter().position(|x| *x == default).unwrap_or(0) as i32);
+                f.set_value(f.default());
+            }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
+        }
         ParameterType::Group { id, label, parameters, opened } => {
             if id == "InfoGroup" { return; }
             params.add_group(Params::from_str(id).unwrap(), Params::from_str(&format!("{id}End")).unwrap(), label, !opened, |params| {
@@ -269,6 +276,40 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 x.get_mut(p)?.as_float_slider_mut()?.set_value(v);
+            }
+            ParamsInner::AeRO(_) => { }
+            ParamsInner::Premiere(_) => { } // Premiere can't set param values
+        }
+        Ok(())
+    }
+    fn get_i32(&self, p: Params) -> PluginResult<i32> {
+        if let Some(v) = self.stored.read().pending_params_i32.get(&p) {
+            return Ok(*v);
+        }
+        match &self.inner {
+            ParamsInner::Ae(x) => {
+                Ok(x.get(p)?.as_popup()?.value() - 1)
+            }
+            ParamsInner::AeRO(x) => {
+                Ok(x.get(p)?.as_popup()?.value() - 1)
+            }
+            ParamsInner::Premiere((filter, render_params)) => {
+                if let Some(ind) = param_index_for_type(p, None) {
+                    match filter.param(ind, render_params.clip_time()) {
+                        Ok(pr::Param::Int32(x)) => Ok(x - 1),
+                        _ => Err("Param not found".into())
+                    }
+                } else {
+                    Err("Param not found".into())
+                }
+            }
+        }
+    }
+    fn set_i32(&mut self, p: Params, v: i32) -> PluginResult<()> {
+        self.stored.write().pending_params_i32.insert(p, v);
+        match &mut self.inner {
+            ParamsInner::Ae(x) => {
+                x.get_mut(p)?.as_popup_mut()?.set_value(v + 1);
             }
             ParamsInner::AeRO(_) => { }
             ParamsInner::Premiere(_) => { } // Premiere can't set param values

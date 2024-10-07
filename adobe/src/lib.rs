@@ -49,6 +49,7 @@ pub struct StoredParams {
     pub pending_params_f64: HashMap<Params, f64>,
     pub pending_params_bool: HashMap<Params, bool>,
     pub pending_params_str: HashMap<Params, String>,
+    pub pending_params_i32: HashMap<Params, i32>,
     pub premiere_keyframed_params: HashSet<Params>,
     pub speed_per_frame: Vec<f64>,
     pub speed_checksum: u64
@@ -68,6 +69,7 @@ impl Default for StoredParams {
             pending_params_str: HashMap::from([
                 (Params::Status, String::from("---")),
             ]),
+            pending_params_i32: HashMap::new(),
             premiere_keyframed_params: HashSet::new(),
             speed_per_frame: Vec::new(),
             speed_checksum: 0,
@@ -426,22 +428,25 @@ impl CrossThreadInstance {
                 let mut _self = _self.read();
                 _self.stored.clone()
             };
-            let (pending_f64s, pending_bools, pending_strings) = {
+            let (pending_f64s, pending_bools, pending_strings, pending_i32s) = {
                 let mut stored = stored.write();
                 stored.pending_params_f64.remove(&param);
                 stored.pending_params_bool.remove(&param);
                 stored.pending_params_str.remove(&param);
+                stored.pending_params_i32.remove(&param);
 
                 (
                     stored.pending_params_f64.clone(),
                     stored.pending_params_bool.clone(),
-                    stored.pending_params_str.clone()
+                    stored.pending_params_str.clone(),
+                    stored.pending_params_i32.clone()
                 )
             };
             let mut params = ParamHandler { inner: ParamsInner::Ae(plugin.params), stored: stored };
             for (k, v) in &pending_f64s    { if *k != param { let _ = params.set_f64(*k, *v); } }
             for (k, v) in &pending_bools   { if *k != param { let _ = params.set_bool(*k, *v); } }
             for (k, v) in &pending_strings { if *k != param { let _ = params.set_string(*k, v); } }
+            for (k, v) in &pending_i32s    { if *k != param { let _ = params.set_i32(*k, *v); } }
         }
 
         let _self = self.get().unwrap();

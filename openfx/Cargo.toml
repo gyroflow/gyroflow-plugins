@@ -19,8 +19,8 @@ log = "0.4"
 winres = "0.1"
 
 [patch.crates-io]
-ofx = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "b39cbdc" }
-ofx_sys = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "b39cbdc" }
+ofx = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "08a900e" }
+ofx_sys = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "08a900e" }
 #ofx = { path = "../../ofx-rs/ofx" }
 #ofx_sys = { path = "../../ofx-rs/ofx-sys" }
 
