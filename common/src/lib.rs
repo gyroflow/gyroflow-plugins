@@ -789,10 +789,9 @@ impl GyroflowPluginBaseInstance {
     }
 
     pub fn set_status(&mut self, params: &mut dyn GyroflowPluginParams, status: &str, hint: &str, ok: bool) {
-        let _ = params.set_string(Params::Status, status);
-        let _ = params.set_hint(Params::Status, hint);
         if params.get_string(Params::Status).unwrap_or_default() != status {
             let _ = params.set_string(Params::Status, status);
+            let _ = params.set_hint(Params::Status, hint);
             if ok {
                 self.update_loaded_state(params, ok);
             }
