@@ -294,7 +294,7 @@ impl Execute for GyroflowPlugin {
                         Some((
                             BufferSource::OpenCL { texture: source_image.get_data()? as *mut c_void, queue },
                             BufferSource::OpenCL { texture: output_image.get_data()? as *mut c_void, queue },
-                            false
+                            true
                         ))
                     } else if in_args.get_metal_enabled().unwrap_or_default() {
                         #[cfg(not(any(target_os = "macos", target_os = "ios")))]
