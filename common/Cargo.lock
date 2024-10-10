@@ -1396,7 +1396,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=019ba8f#019ba8f28bfe346267ac2d1ea4485ae684abf3af"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=bfaa5eb#bfaa5eb11653e93d815e1bf05fcb9600e9ac367f"
 dependencies = [
  "ahrs",
  "akaze",
@@ -1914,7 +1914,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=3693da2#3693da27f956681200ed0d64334b05df827546a1"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-set",
@@ -3161,7 +3161,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=019ba8f#019ba8f28bfe346267ac2d1ea4485ae684abf3af"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=bfaa5eb#bfaa5eb11653e93d815e1bf05fcb9600e9ac367f"
 dependencies = [
  "spirv-std",
 ]
@@ -3672,7 +3672,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=3693da2#3693da27f956681200ed0d64334b05df827546a1"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
 dependencies = [
  "arrayvec 0.7.6",
  "cfg_aliases 0.1.1",
@@ -3696,7 +3696,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=3693da2#3693da27f956681200ed0d64334b05df827546a1"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
 dependencies = [
  "arrayvec 0.7.6",
  "bit-vec",
@@ -3721,7 +3721,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=3693da2#3693da27f956681200ed0d64334b05df827546a1"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.6",
@@ -3765,7 +3765,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=3693da2#3693da27f956681200ed0d64334b05df827546a1"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
