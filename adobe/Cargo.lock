@@ -598,9 +598,9 @@ checksum = "79296716171880943b8470b5f8d03aa55eb2e645a4874bdbb28adb49162e012c"
 
 [[package]]
 name = "bytemuck"
-version = "1.18.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94bbb0ad554ad961ddc5da507a12a29b14e4ae5bda06b19f575a3e6079d2e2ae"
+checksum = "8334215b81e418a0a7bdb8ef0849474f40bb10c8b71f1c4ed315cff49f32494d"
 
 [[package]]
 name = "byteorder"
@@ -616,9 +616,9 @@ checksum = "428d9aa8fbc0670b7b8d6030a7fadd0f86151cae55e4dbbece15f3780a3dfaf3"
 
 [[package]]
 name = "cc"
-version = "1.1.28"
+version = "1.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e80e3b6a3ab07840e1cae9b0666a63970dc28e8ed5ffbcdacbfc760c281bfc1"
+checksum = "b16803a61b81d9eabb7eae2588776c4c1e584b738ede45fdbb4c972cec1e9945"
 dependencies = [
  "shlex",
 ]
@@ -1518,7 +1518,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=db9161b#db9161b0b68ce589014447952c3cc6bb570d75cf"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=6c08afd#6c08afd19d105b935f8c4c635605916d051f0ee9"
 dependencies = [
  "ahrs",
  "akaze",
@@ -2058,7 +2058,7 @@ dependencies = [
 [[package]]
 name = "naga"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=fe7fbd4#fe7fbd4a4abd0d9e8269c9df5e1dd3f8846d6462"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -2798,9 +2798,9 @@ dependencies = [
 
 [[package]]
 name = "profiling"
-version = "1.0.15"
+version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43d84d1d7a6ac92673717f9f6d1518374ef257669c24ebc5ac25d5033828be58"
+checksum = "afbdc74edc00b6f6a218ca6a5364d6226a259d4b8ea1af4a0ea063f27e179f4d"
 
 [[package]]
 name = "prost"
@@ -3371,7 +3371,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=db9161b#db9161b0b68ce589014447952c3cc6bb570d75cf"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=6c08afd#6c08afd19d105b935f8c4c635605916d051f0ee9"
 dependencies = [
  "spirv-std",
 ]
@@ -3425,7 +3425,7 @@ dependencies = [
 [[package]]
 name = "telemetry-parser"
 version = "0.3.0"
-source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=720398f#720398f499807136f12bf097cd8d7c6b78c1faff"
+source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=3ec732f#3ec732f5e1d873b9b0deb71c4c61617650391896"
 dependencies = [
  "argh",
  "byteorder",
@@ -3885,7 +3885,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=fe7fbd4#fe7fbd4a4abd0d9e8269c9df5e1dd3f8846d6462"
 dependencies = [
  "arrayvec",
  "cfg_aliases 0.1.1",
@@ -3909,7 +3909,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=fe7fbd4#fe7fbd4a4abd0d9e8269c9df5e1dd3f8846d6462"
 dependencies = [
  "arrayvec",
  "bit-vec",
@@ -3934,7 +3934,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=fe7fbd4#fe7fbd4a4abd0d9e8269c9df5e1dd3f8846d6462"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -3978,7 +3978,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "22.0.0"
-source = "git+https://github.com/gfx-rs/wgpu.git?rev=d70ef62#d70ef62e9e0683789f745c6a4354495f39354c15"
+source = "git+https://github.com/gfx-rs/wgpu.git?rev=fe7fbd4#fe7fbd4a4abd0d9e8269c9df5e1dd3f8846d6462"
 dependencies = [
  "bitflags 2.6.0",
  "js-sys",
