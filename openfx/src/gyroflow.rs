@@ -202,7 +202,7 @@ impl Execute for GyroflowPlugin {
                 }
 
                 // This should cover most cases by default, and for the rest users will use Fusion
-                if speed_stretch == 1.01 || speed_stretch == 0.99 {
+                if speed_stretch == 1.01 || speed_stretch == 0.99 || speed_stretch == 1.02 || speed_stretch == 0.98 || speed_stretch == 1.03 || speed_stretch == 0.97 {
                     speed_stretch = 1.0;
                 }
 
