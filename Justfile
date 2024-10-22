@@ -38,6 +38,7 @@ publish version:
     sed -i'' -E "0,/version = \"[0-9\.a-z-]+\"/s//version = \"{{version}}\"/" adobe/Cargo.toml
     sed -i'' -E "0,/version = \"[0-9\.a-z-]+\"/s//version = \"{{version}}\"/" openfx/Cargo.toml
     sed -i'' -E "0,/version = \"[0-9\.a-z-]+\"/s//version = \"{{version}}\"/" frei0r/Cargo.toml
+    just update
     git commit -a -m "Release v{{version}}"
     git tag -a "v{{version}}" -m "Release v{{version}}"
     git push origin
