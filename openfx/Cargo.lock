@@ -1416,8 +1416,8 @@ dependencies = [
 
 [[package]]
 name = "gyroflow-core"
-version = "1.5.4"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=1e91744#1e917449fde69614db5ddc88bc8d9773ecc34012"
+version = "1.6.0"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=35f81fe#35f81fe226d5113164fa02434dd943ecb97f4bcd"
 dependencies = [
  "ahrs",
  "akaze",
@@ -3206,7 +3206,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=1e91744#1e917449fde69614db5ddc88bc8d9773ecc34012"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=35f81fe#35f81fe226d5113164fa02434dd943ecb97f4bcd"
 dependencies = [
  "spirv-std",
 ]
@@ -3260,7 +3260,7 @@ dependencies = [
 [[package]]
 name = "telemetry-parser"
 version = "0.3.0"
-source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=f19c14d#f19c14d492e22a5be7e518e9edb0ebcb8cbec665"
+source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=173e14a#173e14a1b4f3a333ce7be765728af670707101db"
 dependencies = [
  "argh",
  "byteorder",
