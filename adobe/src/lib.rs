@@ -159,25 +159,28 @@ impl Instance {
 
                     let mut timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
 
-                    let layer_flags = in_data.effect().layer()?.flags()?;
+                    let _ = (|| -> Result<(), ae::Error> {
+                        let layer_flags = in_data.effect().layer()?.flags()?;
 
-                    if layer_flags.contains(LayerFlags::TIME_REMAPPING) {
-                        let plugin_id = unsafe { AEGP_PLUGIN_ID };
-                        if let Ok(tr) = in_data.effect().layer()?.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
-                            let time = ae::Time { value: in_data.current_time(), scale: in_data.time_scale() };
-                            if let Ok(StreamValue::OneD(v)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
-                                timestamp_us = (v * 1_000_000.0).round() as i64;
+                        if layer_flags.contains(LayerFlags::TIME_REMAPPING) {
+                            let plugin_id = unsafe { AEGP_PLUGIN_ID };
+                            if let Ok(tr) = in_data.effect().layer()?.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
+                                let time = ae::Time { value: in_data.current_time(), scale: in_data.time_scale() };
+                                if let Ok(StreamValue::OneD(v)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
+                                    timestamp_us = (v * 1_000_000.0).round() as i64;
+                                }
                             }
                         }
-                    }
 
-                    if !layer_flags.contains(LayerFlags::FRAME_BLENDING) {
-                        let fps = stab.params.read().fps;
+                        if !layer_flags.contains(LayerFlags::FRAME_BLENDING) {
+                            let fps = stab.params.read().fps;
 
-                        let frame = timestamp_us as f64 * (fps / 1_000_000.0);
-                        let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
-                        timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
-                    }
+                            let frame = timestamp_us as f64 * (fps / 1_000_000.0);
+                            let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
+                            timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
+                        }
+                        Ok(())
+                    })();
 
                     let src_size = (input_world.width(), input_world.height(), input_world.buffer_stride());
                     let dest_size = (output_world.width(), output_world.height(), output_world.buffer_stride());
@@ -377,6 +380,8 @@ impl AdobePluginGlobal for Plugin {
                 self.gyroflow.manager_cache.lock().clear();
             }
             ae::Command::GpuDeviceSetup { extra } => {
+                gyroflow_plugin_base::wgpu::WgpuWrapper::list_devices();
+                gyroflow_core::gpu::initialize_contexts();
                 let device_info = ae::pf::suites::GPUDevice::new().unwrap().device_info(in_data.effect_ref(), extra.device_index())?;
 
                 let what_gpu = extra.what_gpu();
@@ -481,37 +486,40 @@ impl CrossThreadInstance {
             if fps > 0.0 && plugin.in_data.is_after_effects() {
                 let mut speed_per_frame = Vec::new();
                 if params.get_bool(Params::StabilizationSpeedRamp).unwrap_or_default() {
-                    let layer = plugin.in_data.effect().layer()?;
-                    if layer.flags()?.contains(LayerFlags::TIME_REMAPPING) {
-                        let plugin_id = unsafe { AEGP_PLUGIN_ID };
-                        if let Ok(tr) = layer.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
-                            let mut prev_original_ts = 0.0;
-                            let mut prev_new_ts = 0.0;
-                            let mut frame = 0;
+                    let _ = (|| -> Result<(), ae::Error> {
+                        let layer = plugin.in_data.effect().layer()?;
+                        if layer.flags()?.contains(LayerFlags::TIME_REMAPPING) {
+                            let plugin_id = unsafe { AEGP_PLUGIN_ID };
+                            if let Ok(tr) = layer.new_layer_stream(plugin_id, LayerStream::TimeRemap) {
+                                let mut prev_original_ts = 0.0;
+                                let mut prev_new_ts = 0.0;
+                                let mut frame = 0;
 
-                            loop {
-                                let original_ts = frame as f64 / fps;
-                                let time = ae::Time { value: (original_ts * plugin.in_data.time_scale() as f64).round() as i32, scale: plugin.in_data.time_scale() };
-                                if let Ok(StreamValue::OneD(new_ts)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
-                                    if frame > 0 {
-                                        let original_diff = original_ts - prev_original_ts;
-                                        let new_diff = new_ts - prev_new_ts;
-                                        let speed = (new_diff / original_diff) * 100.0;
-                                        if speed.abs() > 0.001 {
-                                            speed_per_frame.push(speed);
+                                loop {
+                                    let original_ts = frame as f64 / fps;
+                                    let time = ae::Time { value: (original_ts * plugin.in_data.time_scale() as f64).round() as i32, scale: plugin.in_data.time_scale() };
+                                    if let Ok(StreamValue::OneD(new_ts)) = tr.new_value(plugin_id, TimeMode::LayerTime, time, false) {
+                                        if frame > 0 {
+                                            let original_diff = original_ts - prev_original_ts;
+                                            let new_diff = new_ts - prev_new_ts;
+                                            let speed = (new_diff / original_diff) * 100.0;
+                                            if speed.abs() > 0.001 {
+                                                speed_per_frame.push(speed);
+                                            } else {
+                                                break;
+                                            }
                                         } else {
-                                            break;
+                                            speed_per_frame.push(100.0);
                                         }
-                                    } else {
-                                        speed_per_frame.push(100.0);
+                                        prev_original_ts = original_ts;
+                                        prev_new_ts = new_ts;
                                     }
-                                    prev_original_ts = original_ts;
-                                    prev_new_ts = new_ts;
+                                    frame += 1;
                                 }
-                                frame += 1;
                             }
                         }
-                    }
+                        Ok(())
+                    })();
                 }
                 if stored2.read().speed_per_frame != speed_per_frame {
                     stored2.write().speed_per_frame = speed_per_frame;
