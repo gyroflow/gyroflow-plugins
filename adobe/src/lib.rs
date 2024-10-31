@@ -138,8 +138,10 @@ impl Instance {
             log::error!("empty stab data in smart_render");
             return Ok(());
         }
-        let mut input_world = cb.checkout_layer_pixels(0)?;
-        if let Ok(mut output_world) = cb.checkout_output() {
+        let Some(mut input_world) = cb.checkout_layer_pixels(0)? else {
+            return Ok(());
+        };
+        if let Ok(Some(mut output_world)) = cb.checkout_output() {
             if let Ok(world_suite) = ae::pf::suites::World::new() {
                 let pixel_format = world_suite.pixel_format(&input_world).unwrap();
                 if is_gpu && pixel_format != ae::PixelFormat::GpuBgra128 {
