@@ -10,7 +10,7 @@ description = "Gyroflow plugin base"
 log = "0.4"
 itertools = "0.13"
 lru = "0.12"
-gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "35f81fe", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
+gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "0d1c907", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 #gyroflow-core = { path = "../../gyroflow/src/core", default-features = false, features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 log-panics = "2.1"
 serde = "1"

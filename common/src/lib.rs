@@ -47,6 +47,7 @@ pub enum Params {
     Rotation,
     VideoSpeed,
     DisableStretch,
+    IntegrationMethod,
     KeyframesGroup, KeyframesGroupEnd,
     UseGyroflowsKeyframes,
     RecalculateKeyframes,
@@ -276,6 +277,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "Fov",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
+                ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
@@ -431,6 +433,7 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::Rotation, loaded);
         let _ = params.set_enabled(Params::VideoSpeed, loaded);
         let _ = params.set_enabled(Params::DisableStretch, loaded);
+        let _ = params.set_enabled(Params::IntegrationMethod, loaded);
         let _ = params.set_enabled(Params::ToggleOverview, loaded);
         let _ = params.set_enabled(Params::ReloadProject, loaded);
         let _ = params.set_enabled(Params::OutputWidth, loaded);
@@ -671,6 +674,7 @@ impl GyroflowPluginBaseInstance {
                     params.set_f64(Params::AdditionalYaw,          gf_params.additional_rotation.0)?;
                     params.set_f64(Params::AdditionalPitch,        gf_params.additional_rotation.1)?;
                     params.set_f64(Params::Rotation,               gf_params.video_rotation)?;
+                    params.set_i32(Params::IntegrationMethod,      stab.gyro.read().integration_method as i32)?;
 
                     params.set_f64(Params::OutputWidth,            self.original_output_size.0 as f64)?;
                     params.set_f64(Params::OutputHeight,           self.original_output_size.1 as f64)?;
@@ -748,6 +752,12 @@ impl GyroflowPluginBaseInstance {
             stab.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
 
             self.set_keyframe_provider(&stab);
+
+            if let Ok(im) = params.get_i32(Params::IntegrationMethod) {
+                let mut gyro = stab.gyro.write();
+                gyro.integration_method = im as usize;
+                gyro.apply_transforms();
+            }
 
             stab.invalidate_smoothing();
             stab.recompute_blocking();
@@ -906,7 +916,7 @@ impl GyroflowPluginBaseInstance {
                 Params::HorizonLockAmount | Params::HorizonLockRoll |
                 //Params::PositionX | Params::PositionY |
                 Params::AdditionalPitch | Params::AdditionalYaw |
-                Params::Rotation | Params::InputRotation | Params::VideoSpeed |
+                Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::IntegrationMethod |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
                     params.set_string(Params::Status, "Calculating...")?;
@@ -919,6 +929,15 @@ impl GyroflowPluginBaseInstance {
                     self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
                     for (_, v) in self.managers.iter_mut() {
                         match param {
+                            Params::IntegrationMethod => {
+                                if let Ok(im) = params.get_i32(Params::IntegrationMethod) {
+                                    let mut gyro = v.gyro.write();
+                                    gyro.integration_method = im as usize;
+                                    gyro.apply_transforms();
+                                }
+                                v.invalidate_blocking_smoothing();
+                                v.invalidate_blocking_zooming();
+                            }
                             Params::Smoothness | Params::ZoomLimit | Params::HorizonLockAmount | Params::HorizonLockRoll |
                             Params::AdditionalPitch | Params::AdditionalYaw | Params::RecalculateKeyframes => {
                                 v.invalidate_blocking_smoothing();
@@ -1083,6 +1102,7 @@ macro_rules! define_params {
                     $( Params::$str_enum  => { let $slabel_p = &mut self.$str_field;  $slabel_block }, )*
                     $( Params::$bool_enum => { let $slabel_p = &mut self.$bool_field; $slabel_block }, )*
                     $( Params::$f64_enum  => { let $slabel_p = &mut self.$f64_field;  $slabel_block }, )*
+                    $( Params::$i32_enum  => { let $slabel_p = &mut self.$i32_field;  $slabel_block }, )*
                     _ => panic!("Wrong parameter type"),
                 }
             }
@@ -1093,6 +1113,7 @@ macro_rules! define_params {
                     $( Params::$str_enum  => { let $shint_p = &mut self.$str_field;  $shint_block }, )*
                     $( Params::$bool_enum => { let $shint_p = &mut self.$bool_field; $shint_block }, )*
                     $( Params::$f64_enum  => { let $shint_p = &mut self.$f64_field;  $shint_block }, )*
+                    $( Params::$i32_enum  => { let $shint_p = &mut self.$i32_field;  $shint_block }, )*
                     _ => panic!("Wrong parameter type"),
                 }
             }
@@ -1103,6 +1124,7 @@ macro_rules! define_params {
                     $( Params::$str_enum  => { let $sen_p = &mut self.$str_field;  $sen_block }, )*
                     $( Params::$bool_enum => { let $sen_p = &mut self.$bool_field; $sen_block }, )*
                     $( Params::$f64_enum  => { let $sen_p = &mut self.$f64_field;  $sen_block }, )*
+                    $( Params::$i32_enum  => { let $sen_p = &mut self.$i32_field;  $sen_block }, )*
                     _ => panic!("Wrong parameter type"),
                 }
             }
