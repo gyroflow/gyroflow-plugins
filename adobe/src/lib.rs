@@ -640,10 +640,10 @@ impl AdobePluginInstance for CrossThreadInstance {
                 let mut stored = _self.stored.write();
                 stored.sequence_size = (in_data.width() as _, in_data.height() as _);
 
+                let mut footage_path = String::new();
                 let _ = (|| -> Result<(), ae::Error> {
                     let layer = in_data.effect().layer()?;
                     let item = layer.source_item()?;
-                    let mut footage_path = String::new();
                     let mut pixel_aspect_ratio = 1.0f64;
                     if item.item_type()? == ae::aegp::ItemType::Footage {
                         if let Ok(par) = item.pixel_aspect_ratio() {
@@ -666,17 +666,18 @@ impl AdobePluginInstance for CrossThreadInstance {
                     if (pixel_aspect_ratio * 100.0).round() != 100.0 {
                         stored.pending_params_bool.insert(Params::DisableStretch, true);
                     }
-                    if !footage_path.is_empty() {
-                        stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned()));
-                        stored.media_file_path = footage_path;
-                    } else {
-                        plugin.out_data.set_return_msg("Unable to find the footage path.\nUse the \"Browse\" button and load the project file or a video file.");
-                    }
 
                     let comp_dimensions = layer.parent_comp()?.item()?.dimensions()?;
                     stored.sequence_size = (comp_dimensions.0 as _, comp_dimensions.1 as _);
                     Ok(())
                 })();
+
+                if !footage_path.is_empty() {
+                    stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned()));
+                    stored.media_file_path = footage_path;
+                } else {
+                    plugin.out_data.set_return_msg("Unable to find the footage path.\nUse the \"Browse\" button and load the project file or a video file.");
+                }
             }
             ae::Command::SmartPreRender { mut extra } => {
                 let what_gpu = extra.what_gpu();
