@@ -677,7 +677,7 @@ impl AdobePluginInstance for CrossThreadInstance {
                 if !footage_path.is_empty() {
                     stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&footage_path).unwrap_or(footage_path.to_owned()));
                     stored.media_file_path = footage_path;
-                } else {
+                } else if in_data.is_after_effects() {
                     plugin.out_data.set_return_msg("Unable to find the footage path.\nUse the \"Browse\" button and load the project file or a video file.");
                 }
             }
