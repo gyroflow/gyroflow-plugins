@@ -1,6 +1,6 @@
 [package]
 name = "gyroflow-frei0r"
-version = "2.0.1"
+version = "2.0.2"
 authors = ["Adrian <adrian.eddy@gmail.com>"]
 edition = "2021"
 description = "Gyroflow frei0r plugin"

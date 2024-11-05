@@ -1,6 +1,6 @@
 [package]
 name = "gyroflow_adobe"
-version = "2.0.1"
+version = "2.0.2"
 authors = ["Adrian <adrian.eddy@gmail.com>"]
 edition = "2021"
 

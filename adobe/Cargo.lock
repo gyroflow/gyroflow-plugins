@@ -1610,7 +1610,7 @@ dependencies = [
 
 [[package]]
 name = "gyroflow_adobe"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "after-effects",
  "bincode",

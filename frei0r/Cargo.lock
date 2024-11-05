@@ -1453,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "gyroflow-frei0r"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "cstr",
  "gyroflow-plugin-base",
