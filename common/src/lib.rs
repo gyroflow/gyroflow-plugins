@@ -572,6 +572,9 @@ impl GyroflowPluginBaseInstance {
                         if out_size != (0, 0) {
                             stab.params.write().output_size = out_size; // Default to timeline output size
                         }
+                        if let Some(preset_out_size) = stab.input_file.read().preset_output_size {
+                            stab.params.write().output_size = preset_out_size;
+                        }
 
                         if let Ok(d) = params.get_string(Params::EmbeddedLensProfile) {
                             if !d.is_empty() {

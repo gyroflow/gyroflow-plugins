@@ -484,21 +484,24 @@ impl Execute for GyroflowPlugin {
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
-                if in_args.get_name()? == "Source" || in_args.get_name()? == "Output" {
+                if in_args.get_name()? == "Source" || in_args.get_name()? == "Output" || in_args.get_name()? == "ResolveUseAlphaForTrackCompositing" {
                     log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
                     return OK;
                 }
 
-                let param: Params = std::str::FromStr::from_str(in_args.get_name()?.as_str()).unwrap();
-                if param == Params::OutputSizeToTimeline {
-                    let rect = instance_data.source_clip.get_region_of_definition(0.0)?;
-                    instance_data.plugin.timeline_size = ((rect.x2 - rect.x1) as usize, (rect.y2 - rect.y1) as usize);
-                }
+                if let Ok(param) = std::str::FromStr::from_str(in_args.get_name()?.as_str()) {
+                    if param == Params::OutputSizeToTimeline {
+                        let rect = instance_data.source_clip.get_region_of_definition(0.0)?;
+                        instance_data.plugin.timeline_size = ((rect.x2 - rect.x1) as usize, (rect.y2 - rect.y1) as usize);
+                    }
 
-                instance_data.plugin.param_changed(&mut instance_data.params, &self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
-                    log::error!("param_changed error: {e:?}");
-                    Error::InvalidAction
-                })?;
+                    instance_data.plugin.param_changed(&mut instance_data.params, &self.gyroflow_plugin.manager_cache, param, in_args.get_change_reason()? == Change::UserEdited).map_err(|e| {
+                        log::error!("param_changed error: {e:?}");
+                        Error::InvalidAction
+                    })?;
+                } else {
+                    log::error!("Unknown param name: {:?}", in_args.get_name()?);
+                }
 
                 OK
             }
