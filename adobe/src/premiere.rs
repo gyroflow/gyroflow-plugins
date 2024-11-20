@@ -165,7 +165,7 @@ impl pr::GpuFilter for PremiereGPU {
                 base_inst.timeline_size = (render_params.render_width() as _, render_params.render_height() as _);
 
                 if let Ok(stab) = base_inst.stab_manager(&mut params, &super::global_inst().gyroflow.manager_cache, (out_size.0 as _, out_size.1 as _), false) {
-                    {
+                    /*{
                         let duration_ms = stab.params.read().duration_ms;
                         let old_range = stab.trim_ranges().first().cloned().unwrap_or((0.0, 1.0));
                         let old_range_ms = ((old_range.0 * duration_ms).round() as i64, (old_range.1 * duration_ms).round() as i64);
@@ -177,7 +177,7 @@ impl pr::GpuFilter for PremiereGPU {
                             stab.set_trim_ranges(vec![((new_range.0 * 1000.0) / duration_ms, (new_range.1 * 1000.0) / duration_ms)]);
                             stab.invalidate_blocking_smoothing();
                         }
-                    }
+                    }*/
                     let fps = stab.params.read().fps;
 
                     let fps_ticks = inst.stored.read().media_fps_ticks;
