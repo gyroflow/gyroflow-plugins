@@ -1045,9 +1045,9 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.3.1"
+version = "5.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6032be9bd27023a771701cc49f9f053c751055f71efb2e0ae5c15809093675ba"
+checksum = "3492acde4c3fc54c845eaab3eed8bd00c7a7d881f78bfc801e43a93dec1331ae"
 dependencies = [
  "concurrent-queue",
  "parking",
@@ -1378,7 +1378,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.6.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=91df29b#91df29b43cd4c620efa05d2936bd5172fc6f03df"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=dd447ea#dd447eadf296850b5d5d767a56e13099202da979"
 dependencies = [
  "ahrs",
  "akaze",
@@ -1887,9 +1887,9 @@ dependencies = [
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.4.14"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
+checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
 name = "litemap"
@@ -3298,7 +3298,7 @@ source = "git+https://github.com/EmbarkStudios/rust-gpu?rev=54f6978#54f6978c25b7
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=91df29b#91df29b43cd4c620efa05d2936bd5172fc6f03df"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=dd447ea#dd447eadf296850b5d5d767a56e13099202da979"
 dependencies = [
  "spirv-std",
 ]
@@ -3959,9 +3959,9 @@ dependencies = [
 
 [[package]]
 name = "wide"
-version = "0.7.31"
+version = "0.7.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc0ca27312d1e9218687a4e804cd4b7410bf54125d54d13e5170efbf09066d24"
+checksum = "41b5576b9a81633f3e8df296ce0063042a73507636cbe956c61133dd7034ab22"
 dependencies = [
  "bytemuck",
  "safe_arch",
