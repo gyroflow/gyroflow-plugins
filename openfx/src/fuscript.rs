@@ -28,7 +28,11 @@ impl CurrentFileInfo {
         } else if cfg!(target_os = "macos") {
             Some(std::path::Path::new("../Libraries/Fusion/fuscript").to_path_buf())
         } else if cfg!(target_os = "linux") {
-            Some(std::path::Path::new("../libs/Fusion/fuscript").to_path_buf())
+            let p1 = std::path::Path::new("../libs/Fusion/fuscript");
+            let p2 = std::path::Path::new("./libs/Fusion/fuscript");
+            if p1.exists() { return Some(p1.to_path_buf()); }
+            if p2.exists() { return Some(p2.to_path_buf()); }
+            None
         } else {
             None
         }
@@ -44,11 +48,21 @@ impl CurrentFileInfo {
 
             let script = "p = Resolve():GetProjectManager():GetCurrentProject():GetCurrentTimeline():GetCurrentVideoItem():GetMediaPoolItem():GetClipProperty();
                               print(p['FPS']);print(p['Frames']);print(p['Duration']);print(p['PAR']);print(p['Resolution']);print(p['File Path']);";
-            if let Ok(out) = cmd.args(["-q", "-x", &script]).output() {
+            if let Ok(out) = cmd.args(["-q", "-l", "lua", "-x", &script]).output() {
                 let stdout = String::from_utf8(out.stdout).unwrap_or_default();
                 let stderr = String::from_utf8(out.stderr).unwrap_or_default();
+                // There is a weird bug in DaVinci Resolve fuscript that it complains about
+                // missing python2 even regardless of explicitly specified `-l lua` argument.
+                // The error message itself is a subject to localization, so it can't be hardcoded in whole.
+                // See https://github.com/gyroflow/gyroflow-plugins/issues/24
+                fn is_missing_python2(line: &str) -> bool {
+                    line.starts_with("sh:") && line.contains("python2:")
+                }
+                let errors = stderr.trim().lines()
+                        .filter(|line| !is_missing_python2(line))
+                        .collect::<Vec<_>>();
                 let lines = stdout.trim().lines().collect::<Vec<_>>();
-                if stderr.trim().is_empty() && lines.len() == 6 {
+                if errors.is_empty() && lines.len() == 6 {
                     let fps = lines[0].parse::<f64>().unwrap_or_default();
                     let frame_count = lines[1].parse::<usize>().unwrap_or_default();
                     let duration_s = Self::parse_duration(lines[2], fps);
