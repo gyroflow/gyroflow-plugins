@@ -109,6 +109,7 @@ struct InstanceData {
     params: ParamHandler,
     plugin: GyroflowPluginBaseInstance,
     supports_output_size: bool,
+    file_path: Option<String>,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
@@ -163,6 +164,10 @@ impl Execute for GyroflowPlugin {
 
                 let time = in_args.get_time()?;
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
+
+                if let Some(path) = instance_data.file_path.take() {
+                    let _ = instance_data.params.set_string(Params::ProjectPath, &gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path));
+                }
 
                 let loading_pending_video_file = instance_data.check_pending_file_info()?;
 
@@ -223,6 +228,9 @@ impl Execute for GyroflowPlugin {
                 if (src_fps - fps).abs() > 0.01 {
                     let frame = (time / src_fps) * fps * speed_stretch;
                     timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
+                }
+                if let Ok(frame) = in_args.get_src_frame() {
+                    timestamp_us = (frame as f64 * (1_000_000.0 / fps)).round() as i64;
                 }
 
                 let source_timestamp_us = params.get_source_timestamp_at_ramped_timestamp(timestamp_us);
@@ -404,6 +412,7 @@ impl Execute for GyroflowPlugin {
                     source_clip,
                     output_clip,
                     supports_output_size: true,
+                    file_path: None,
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
                         project_data:             param_set.parameter("ProjectData")?,
@@ -473,6 +482,11 @@ impl Execute for GyroflowPlugin {
                 let props: EffectInstance = effect.properties()?;
                 if matches!(props.get_resolve_page().as_deref(), Ok("Edit") | Ok("Color")) {
                     instance_data.supports_output_size = false;
+                }
+                if let Ok(path) = props.get_src_file_path() {
+                    if !path.is_empty() {
+                        instance_data.file_path = Some(path.clone());
+                    }
                 }
 
                 effect.set_instance_data(instance_data)?;
@@ -643,6 +657,7 @@ impl Execute for GyroflowPlugin {
                 let supports_metal  = _plugin_context.get_host().get_metal_render_supported().unwrap_or_default() == "true";
 
                 log::info!("Host name: {:?}", _plugin_context.get_host().get_name());
+                log::info!("Host version: {:?}", _plugin_context.get_host().get_version_label());
                 log::info!("Host supports OpenGL: {:?}", supports_opengl);
                 log::info!("Host supports OpenCL: {:?}", supports_opencl);
                 log::info!("Host supports CUDA: {:?}", supports_cuda);
