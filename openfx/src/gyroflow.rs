@@ -109,6 +109,7 @@ struct InstanceData {
     params: ParamHandler,
     plugin: GyroflowPluginBaseInstance,
     supports_output_size: bool,
+    is_fusion_page: bool,
     file_path: Option<String>,
 
     current_file_info_pending: Arc<AtomicBool>,
@@ -317,7 +318,7 @@ impl Execute for GyroflowPlugin {
                             Some((
                                 BufferSource::MetalBuffer { buffer: source_image.get_data()? as *mut metal::MTLBuffer, command_queue },
                                 BufferSource::MetalBuffer { buffer: output_image.get_data()? as *mut metal::MTLBuffer, command_queue },
-                                false
+                                instance_data.is_fusion_page
                             ))
                         }
                     } else if in_args.get_cuda_enabled().unwrap_or_default() {
@@ -412,6 +413,7 @@ impl Execute for GyroflowPlugin {
                     source_clip,
                     output_clip,
                     supports_output_size: true,
+                    is_fusion_page: false,
                     file_path: None,
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
@@ -482,6 +484,9 @@ impl Execute for GyroflowPlugin {
                 let props: EffectInstance = effect.properties()?;
                 if matches!(props.get_resolve_page().as_deref(), Ok("Edit") | Ok("Color")) {
                     instance_data.supports_output_size = false;
+                }
+                if matches!(props.get_resolve_page().as_deref(), Ok("Fusion")) {
+                    instance_data.is_fusion_page = true;
                 }
                 if let Ok(path) = props.get_src_file_path() {
                     if !path.is_empty() {
