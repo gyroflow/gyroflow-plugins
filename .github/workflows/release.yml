@@ -63,7 +63,7 @@ jobs:
       - name: Build plugins (Linux)
         if: ${{ matrix.targets.type == 'linux' }}
         run: |
-          sudo docker run -v ${{ github.workspace }}:${{ github.workspace }} -v $HOME/.cargo:/root/.cargo debian:10 bash -c "
+          sudo docker run -v ${{ github.workspace }}:${{ github.workspace }} -v $HOME/.cargo:/root/.cargo debian/eol:buster bash -c "
             set -e
             apt-get update -y
             echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
