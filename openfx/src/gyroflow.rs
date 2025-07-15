@@ -167,7 +167,9 @@ impl Execute for GyroflowPlugin {
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
 
                 if let Some(path) = instance_data.file_path.take() {
-                    let _ = instance_data.params.set_string(Params::ProjectPath, &gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path));
+                    if instance_data.params.get_string(Params::ProjectPath).unwrap_or_default().is_empty() {
+                        let _ = instance_data.params.set_string(Params::ProjectPath, &gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path));
+                    }
                 }
 
                 let loading_pending_video_file = instance_data.check_pending_file_info()?;

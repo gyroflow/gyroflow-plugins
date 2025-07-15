@@ -600,7 +600,7 @@ impl GyroflowPluginBaseInstance {
                                 params.set_string(Params::ProjectData, &data)?;
                             }
                         }
-                        if md.rotation != 0 {
+                        if md.rotation != 0 && self.reload_values_from_project {
                             let r = ((360 - md.rotation) % 360) as f64;
                             params.set_f64(Params::InputRotation, r)?;
                             stab.params.write().video_rotation = r;
