@@ -9,8 +9,8 @@ description = "Gyroflow plugin base"
 [dependencies]
 log = "0.4"
 itertools = "0.14"
-lru = "0.14"
-gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "35c5315", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
+lru = "0.16"
+gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "888965c", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 #gyroflow-core = { path = "../../gyroflow/src/core", default-features = false, features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 log-panics = "2.1"
 serde = "1"
@@ -23,5 +23,5 @@ simplelog = "0.12.2"
 win_dbg_logger = "0.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-metal = "0.31.0"
+metal = "0.32.0"
 oslog = "0.2"
