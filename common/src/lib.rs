@@ -14,6 +14,9 @@ pub use lru;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use metal;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub type PluginResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, PartialOrd, Eq, Ord, serde::Serialize, serde::Deserialize)]
