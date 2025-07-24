@@ -1282,7 +1282,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.6.1"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=0ad1753#0ad17533b69b742f4e05f27555b502d0a743f259"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=90207d4#90207d4d4ac5ea917a3da923d9d2997b183cc3bf"
 dependencies = [
  "ahrs",
  "akaze",
@@ -2530,9 +2530,9 @@ checksum = "bbc83ee4a840062f368f9096d80077a9841ec117e17e7f700df81958f1451254"
 
 [[package]]
 name = "prettyplease"
-version = "0.2.35"
+version = "0.2.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061c1221631e079b26479d25bbf2275bfe5917ae8419cd7e34f13bfc2aa7539a"
+checksum = "ff24dfcda44452b9816fff4cd4227e1bb73ff5a2f1bc1105aa92fb8565ce44d2"
 dependencies = [
  "proc-macro2",
  "syn 2.0.104",
@@ -3236,7 +3236,7 @@ source = "git+https://github.com/Rust-GPU/rust-gpu?rev=854e9ba#854e9ba7da26d52ca
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=0ad1753#0ad17533b69b742f4e05f27555b502d0a743f259"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=90207d4#90207d4d4ac5ea917a3da923d9d2997b183cc3bf"
 dependencies = [
  "spirv-std",
 ]

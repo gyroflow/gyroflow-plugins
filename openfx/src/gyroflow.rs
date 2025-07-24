@@ -66,6 +66,7 @@ define_params!(ParamHandler {
         VideoSpeed            => video_speed:              ParamHandle<Double>,
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
+        FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
         Interpolation         => interpolation:            ParamHandle<Int>,
@@ -167,8 +168,10 @@ impl Execute for GyroflowPlugin {
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
 
                 if let Some(path) = instance_data.file_path.take() {
-                    if instance_data.params.get_string(Params::ProjectPath).unwrap_or_default().is_empty() {
-                        let _ = instance_data.params.set_string(Params::ProjectPath, &gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path));
+                    let project_path = instance_data.params.get_string(Params::ProjectPath).unwrap_or_default();
+                    let new_project_path = gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path);
+                    if project_path.is_empty() || project_path != new_project_path {
+                        let _ = instance_data.params.set_string(Params::ProjectPath, &new_project_path);
                     }
                 }
 
@@ -191,6 +194,9 @@ impl Execute for GyroflowPlugin {
                     let _ = instance_data.params.output_swap.set_enabled(false);
                     let _ = instance_data.params.output_size_fit.set_enabled(false);
                 }
+                if !instance_data.is_fusion_page {
+                    let _ = instance_data.params.fusion_start_frame.set_enabled(false);
+                }
 
                 let params = stab.params.read();
                 let fps = params.fps;
@@ -204,7 +210,7 @@ impl Execute for GyroflowPlugin {
 
                 let mut speed_stretch = 1.0;
                 if let Ok(range) = instance_data.source_clip.get_frame_range() {
-                    if range.max > 0.0 {
+                    if range.max > 0.0 && !instance_data.is_fusion_page {
                         let duration_at_src_fps = (range.max / src_fps) * 1000.0;
                         speed_stretch = ((params.duration_ms.round() / duration_at_src_fps.round()) * 100.0).floor() / 100.0;
                     }
@@ -224,6 +230,8 @@ impl Execute for GyroflowPlugin {
                 }
 
                 let mut time = time;
+                let time_adj = if instance_data.is_fusion_page { instance_data.params.fusion_start_frame.get_value().unwrap_or_default() } else { 0.0 };
+                time -= time_adj;
                 let mut timestamp_us = ((time / src_fps * 1_000_000.0) * speed_stretch).round() as i64;
 
                 // log::info!("fps: {fps:?}, src_fps: {src_fps:?}, speed_stretch: {speed_stretch:.6}, time: {time:?}, timestamp_us: {timestamp_us:?}");
@@ -248,6 +256,7 @@ impl Execute for GyroflowPlugin {
                     }
                 }
 
+                time += time_adj;
                 let source_image = if in_args.get_opengl_enabled().unwrap_or_default() {
                     instance_data.source_clip.load_texture(time, None)?
                 } else {
@@ -455,6 +464,8 @@ impl Execute for GyroflowPlugin {
                         loaded_lens:              param_set.parameter("LoadedLens")?,
                         loaded_preset:            param_set.parameter("LoadedPreset")?,
 
+                        fusion_start_frame:       param_set.parameter("FusionStartFrame")?,
+
                         fields: Default::default(),
                     },
                     plugin: GyroflowPluginBaseInstance {
@@ -470,6 +481,7 @@ impl Execute for GyroflowPlugin {
                         cache_keyframes_every_frame: true,
                         framebuffer_inverted:        true,
                         anamorphic_adjust_size:      true,
+                        always_set_input_rotation:   false,
                         has_motion:                  false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,

@@ -99,6 +99,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
         ParameterType::Slider { id, label, min, max, default, .. } => {
             let p = Params::from_str(id).unwrap();
             if p == Params::VideoSpeed { return; }
+            if p == Params::FusionStartFrame { return; }
             params.add_with_flags(p, label, ae::FloatSliderDef::setup(|f| {
                 f.set_valid_min(min as f32);
                 f.set_slider_min(min as f32);

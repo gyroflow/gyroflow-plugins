@@ -69,6 +69,7 @@ pub enum Params {
     LoadedLens,
     CreateCamera,
     Interpolation,
+    FusionStartFrame,
 }
 
 thread_local! {
@@ -281,6 +282,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
+                ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
                 ParameterType::Checkbox { id: "UseGyroflowsKeyframes", label: "Use Gyroflow's keyframes", hint: "Use internal Gyroflow's keyframes, instead of the editor ones.", default: false },
@@ -374,6 +376,7 @@ pub struct GyroflowPluginBaseInstance {
     pub cache_keyframes_every_frame: bool,
     pub framebuffer_inverted: bool,
     pub anamorphic_adjust_size: bool,
+    pub always_set_input_rotation: bool,
 
     pub opencl_disabled: bool,
 }
@@ -393,6 +396,7 @@ impl Clone for GyroflowPluginBaseInstance {
             cache_keyframes_every_frame:    self.cache_keyframes_every_frame,
             framebuffer_inverted:           self.framebuffer_inverted,
             anamorphic_adjust_size:         self.anamorphic_adjust_size,
+            always_set_input_rotation:      self.always_set_input_rotation,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -413,6 +417,7 @@ impl Default for GyroflowPluginBaseInstance {
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false,
             anamorphic_adjust_size:         true,
+            always_set_input_rotation:      false,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -654,6 +659,16 @@ impl GyroflowPluginBaseInstance {
                     format!("load_gyro_data error: {e}")
                 })?;
                 params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
+
+                if self.always_set_input_rotation {
+                    if let Ok(video_md) = gyroflow_core::util::get_video_metadata(stab.input_file.read().url.as_str()) {
+                        if video_md.rotation != 0 && self.reload_values_from_project {
+                            let r = ((360 - video_md.rotation) % 360) as f64;
+                            params.set_f64(Params::InputRotation, r)?;
+                            stab.params.write().video_rotation = r;
+                        }
+                    }
+                }
             }
 
             let loaded = {
