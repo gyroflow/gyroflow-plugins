@@ -209,7 +209,11 @@ impl Execute for GyroflowPlugin {
                 };
 
                 let mut speed_stretch = 1.0;
+                let mut time_adj = 0.0;
                 if let Ok(range) = instance_data.source_clip.get_frame_range() {
+                    if instance_data.is_fusion_page {
+                        time_adj = range.min;
+                    }
                     if range.max > 0.0 && !instance_data.is_fusion_page {
                         let duration_at_src_fps = (range.max / src_fps) * 1000.0;
                         speed_stretch = ((params.duration_ms.round() / duration_at_src_fps.round()) * 100.0).floor() / 100.0;
@@ -230,7 +234,7 @@ impl Execute for GyroflowPlugin {
                 }
 
                 let mut time = time;
-                let time_adj = if instance_data.is_fusion_page { instance_data.params.fusion_start_frame.get_value().unwrap_or_default() } else { 0.0 };
+                //let time_adj = if instance_data.is_fusion_page { instance_data.params.fusion_start_frame.get_value().unwrap_or_default() } else { 0.0 };
                 time -= time_adj;
                 let mut timestamp_us = ((time / src_fps * 1_000_000.0) * speed_stretch).round() as i64;
 
