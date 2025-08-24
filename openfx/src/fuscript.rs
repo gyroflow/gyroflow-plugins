@@ -9,6 +9,15 @@ Set \"Preferences -> General -> External scripting using\" to \"Local\".\n\n
 It must be the currently displayed video on the timeline.\n
 It is also impossible to query file path on a compound clip.\n\nIn any case, you can just select the video or project file using the \"Browse\" button.";
 
+fn replace_frame_count(input: &str) -> String {
+    use regex::Regex;
+    let re = Regex::new(r"\[(\d+)-(\d+)\]").unwrap();
+
+    re.replace_all(input, |caps: &regex::Captures| {
+        format!("{}", &caps[1])
+    }).to_string()
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CurrentFileInfo {
@@ -68,7 +77,7 @@ impl CurrentFileInfo {
                     let duration_s = Self::parse_duration(lines[2], fps);
                     let par = lines[3];
                     let resolution = lines[4].split("x").filter_map(|x| x.parse::<usize>().ok()).collect::<Vec<_>>();
-                    let file_path = lines[5];
+                    let file_path = replace_frame_count(lines[5]);
                     if fps > 0.0 && frame_count > 0 && duration_s > 0.0 && !file_path.is_empty() {
                         let info = Self {
                             file_path: file_path.to_string(),
@@ -78,7 +87,7 @@ impl CurrentFileInfo {
                             width: *resolution.get(0).unwrap_or(&0),
                             height: *resolution.get(1).unwrap_or(&0),
                             pixel_aspect_ratio: par.to_string(),
-                            project_path: gyroflow_plugin_base::GyroflowPluginBase::get_project_path(file_path)
+                            project_path: gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&file_path)
                         };
                         log::debug!("{info:#?}");
                         *current_file_info.lock() = Some(info);

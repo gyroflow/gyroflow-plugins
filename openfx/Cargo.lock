@@ -1375,6 +1375,7 @@ dependencies = [
  "gyroflow-plugin-base",
  "log",
  "ofx",
+ "regex",
  "winres",
 ]
 

@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 gyroflow-plugin-base = { path = "../common" }
 ofx = "0.3"
 log = "0.4"
+regex = "1.11"
 
 [build-dependencies]
 winres = "0.1"
