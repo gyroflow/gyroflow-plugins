@@ -66,7 +66,7 @@ define_params!(ParamHandler {
         VideoSpeed            => video_speed:              ParamHandle<Double>,
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
-        FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
+        //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
         Interpolation         => interpolation:            ParamHandle<Int>,
@@ -194,9 +194,9 @@ impl Execute for GyroflowPlugin {
                     let _ = instance_data.params.output_swap.set_enabled(false);
                     let _ = instance_data.params.output_size_fit.set_enabled(false);
                 }
-                if !instance_data.is_fusion_page {
+                /*if !instance_data.is_fusion_page {
                     let _ = instance_data.params.fusion_start_frame.set_enabled(false);
-                }
+                }*/
 
                 let params = stab.params.read();
                 let fps = params.fps;
@@ -468,7 +468,7 @@ impl Execute for GyroflowPlugin {
                         loaded_lens:              param_set.parameter("LoadedLens")?,
                         loaded_preset:            param_set.parameter("LoadedPreset")?,
 
-                        fusion_start_frame:       param_set.parameter("FusionStartFrame")?,
+                        //fusion_start_frame:       param_set.parameter("FusionStartFrame")?,
 
                         fields: Default::default(),
                     },
