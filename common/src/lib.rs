@@ -578,7 +578,17 @@ impl GyroflowPluginBaseInstance {
                 match stab.load_video_file(&filesystem::path_to_url(&path), None, true) {
                     Ok(md) => {
                         if out_size != (0, 0) {
-                            stab.params.write().output_size = out_size; // Default to timeline output size
+                            // Check if the output size aspect ratio differs significantly from video aspect ratio
+                            let video_aspect = md.width as f64 / md.height as f64;
+                            let output_aspect = out_size.0 as f64 / out_size.1 as f64;
+                            if (video_aspect - output_aspect).abs() > 0.01 {
+                                // Timeline has different aspect ratio - use timeline dimensions
+                                log::info!("Using timeline aspect ratio {:.3} instead of video aspect ratio {:.3}", output_aspect, video_aspect);
+                                stab.params.write().output_size = out_size;
+                            } else {
+                                // Aspect ratios match - use video dimensions
+                                stab.params.write().output_size = (md.width as usize, md.height as usize);
+                            }
                         }
                         if let Some(preset_out_size) = stab.input_file.read().preset_output_size {
                             stab.params.write().output_size = preset_out_size;

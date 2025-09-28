@@ -277,7 +277,17 @@ impl Execute for GyroflowPlugin {
                 if src_size.2 <= 0 { src_size.2 = src_size.0 * 4 * 4 }; // assuming 32-bit float
                 if out_size.2 <= 0 { out_size.2 = out_size.0 * 4 * 4 }; // assuming 32-bit float
 
-                let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
+                // Use source image aspect ratio instead of original video aspect ratio to prevent stretching
+                // This is especially important in DaVinci Resolve where the project aspect ratio differs from video aspect ratio
+                let src_aspect_ratio = src_size.0 as f64 / src_size.1 as f64;
+                let src_rect = if (src_aspect_ratio - org_ratio).abs() > 0.01 {
+                    // If the source aspect ratio differs significantly from the original, use source aspect ratio
+                    // This happens when DaVinci Resolve crops/scales the input to match project aspect ratio
+                    (0, 0, src_size.0, src_size.1)
+                } else {
+                    // Use original video aspect ratio when source matches original (normal case)
+                    GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio)
+                };
 
                 let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
                     let output_ratio = out_size.0 as f64 / out_size.1 as f64;
@@ -288,6 +298,9 @@ impl Execute for GyroflowPlugin {
                 } else {
                     None
                 };
+                
+                log::debug!("Aspect ratio handling: org_ratio={:.3}, src_aspect={:.3}, out_aspect={:.3}, src_size={:?}, out_size={:?}, src_rect={:?}, out_rect={:?}", 
+                           org_ratio, src_aspect_ratio, out_size.0 as f64 / out_size.1 as f64, src_size, out_size, src_rect, out_rect);
                 let out_scale = output_image.get_render_scale()?;
                 if (out_scale.x != 1.0 || out_scale.y != 1.0) && !in_args.get_opengl_enabled().unwrap_or_default() {
                     // log::debug!("out_scale: {:?}", out_scale);
