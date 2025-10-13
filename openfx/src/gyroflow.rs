@@ -728,8 +728,10 @@ impl Execute for GyroflowPlugin {
 
                 #[cfg(target_os = "macos")]
                 if !wgpu_devices.iter().any(|x| x.to_ascii_lowercase().contains("apple m")) {
-                    std::env::set_var("NO_METAL", "1");
-                    std::env::set_var("NO_WGPU", "1");
+                    unsafe {
+                        std::env::set_var("NO_METAL", "1");
+                        std::env::set_var("NO_WGPU", "1");
+                    }
                 }
 
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
