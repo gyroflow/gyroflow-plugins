@@ -814,7 +814,7 @@ impl GyroflowPluginBaseInstance {
 
     pub fn disable_opencl(&mut self) {
         if !self.opencl_disabled {
-            std::env::set_var("NO_OPENCL", "1");
+            unsafe { std::env::set_var("NO_OPENCL", "1") };
             self.opencl_disabled = true;
         }
     }

@@ -299,10 +299,6 @@ impl Instance {
 }
 
 impl AdobePluginGlobal for Plugin {
-    fn can_load(_host_name: &str, _host_version: &str) -> bool {
-        true
-    }
-
     fn params_setup(&self, params: &mut ae::Parameters<Params>, in_data: InData, _: OutData) -> Result<(), Error> {
         // Logo
         params.add_customized(Params::Logo, "", ae::NullDef::new(), |param| {
@@ -362,7 +358,7 @@ impl AdobePluginGlobal for Plugin {
                     out_data.set_out_flag2(ae::OutFlags2::SupportsGpuRenderF32, true);
 
                     if let Ok(util) = ae::aegp::suites::Utility::new() {
-                        unsafe { AEGP_PLUGIN_ID = util.register_with_aegp(None, "Gyroflow")?; }
+                        unsafe { AEGP_PLUGIN_ID = util.register_with_aegp("Gyroflow")?; }
                     }
                 }
 
@@ -596,11 +592,11 @@ impl CrossThreadInstance {
 
 impl AdobePluginInstance for CrossThreadInstance {
     fn flatten(&self) -> Result<(u16, Vec<u8>), Error> {
-        Ok((1, bincode::serialize(&self).unwrap()))
+        Ok((1, bincode::serde::encode_to_vec(&self, bincode::config::legacy()).unwrap()))
     }
     fn unflatten(_version: u16, bytes: &[u8]) -> Result<Self, Error> {
-        match bincode::deserialize::<Self>(bytes) {
-            Ok(inst) => {
+        match bincode::serde::decode_from_slice::<Self, _>(bytes, bincode::config::legacy()) {
+            Ok((inst, _)) => {
                 let mut _self = inst.get().unwrap();
                 let mut _self = _self.write();
                 if _self.gyroflow.is_none() {

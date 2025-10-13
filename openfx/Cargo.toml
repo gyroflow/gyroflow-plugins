@@ -3,7 +3,7 @@ name = "gyroflow-ofx"
 version = "2.1.1"
 authors = ["Adrian <adrian.eddy@gmail.com>", "Ilya Epifanov <elijah.epifanov@gmail.com>"]
 license = "GPL-3.0-or-later"
-edition = "2021"
+edition = "2024"
 description = "Gyroflow OpenFX plugin"
 build = "build.rs"
 
@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 gyroflow-plugin-base = { path = "../common" }
 ofx = "0.3"
 log = "0.4"
-regex = "1.11"
+regex = "1.12"
 
 [build-dependencies]
 winres = "0.1"

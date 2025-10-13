@@ -686,10 +686,10 @@ impl Execute for GyroflowPlugin {
                 log::info!("Host supports CUDA: {:?}", supports_cuda);
                 log::info!("Host supports Metal: {:?}", supports_metal);
                 if !supports_opencl && !supports_opengl {
-                    std::env::set_var("NO_OPENCL", "1");
+                    unsafe { std::env::set_var("NO_OPENCL", "1") };
                 }
                 if _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas") {
-                    std::env::set_var("NO_OPENCL", "1");
+                    unsafe { std::env::set_var("NO_OPENCL", "1") };
                 }
 
                 let mut effect_properties: EffectDescriptor = effect.properties()?;

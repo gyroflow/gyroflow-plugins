@@ -16,7 +16,7 @@ fn main() {
             version.push_str("-dev");
         }
 
-        std::env::set_var("CARGO_PKG_VERSION", version);
+        unsafe { std::env::set_var("CARGO_PKG_VERSION", version) };
     }
 
     pipl::plugin_build(vec![

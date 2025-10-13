@@ -11,7 +11,7 @@ impl PngImage {
     pub fn new(png_bytes: &[u8]) -> Self {
         let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
         let mut reader = decoder.read_info().unwrap();
-        let mut data = vec![0; reader.output_buffer_size()];
+        let mut data = vec![0; reader.output_buffer_size().unwrap()];
         let info = reader.next_frame(&mut data).unwrap();
         if data.len() != info.buffer_size() {
             data.resize(info.buffer_size(), 0)

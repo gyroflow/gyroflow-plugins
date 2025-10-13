@@ -328,7 +328,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
                 if p == Params::OpenGyroflow {
                     x.as_button_mut()?.set_label(label);
                 } else {
-                    x.set_name(label);
+                    x.set_name(label)?;
                 }
                 x.update_param_ui()?;
             }
