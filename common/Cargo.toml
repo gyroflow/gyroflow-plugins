@@ -10,12 +10,12 @@ description = "Gyroflow plugin base"
 log = "0.4"
 itertools = "0.14"
 lru = "0.16"
-gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "5bb06ae", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
+gyroflow-core = { git = "https://github.com/gyroflow/gyroflow.git", default-features = false, rev = "20cbffd", features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 #gyroflow-core = { path = "../../gyroflow/src/core", default-features = false, features = ["bundle-lens-profiles", "use-opencl", "cache-gyro-metadata"] }
 log-panics = "2.1"
 serde = "1"
 serde_json = "1"
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rfd = { version = "0.16", default-features = false, features = ["xdg-portal", "tokio"] }
 parking_lot = "0.12"
 lazy_static = "1.5.0"
 fastrand = "2.3"
