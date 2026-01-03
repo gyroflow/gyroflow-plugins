@@ -102,9 +102,14 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                     inst.path = path.clone();
 
                     if !path.ends_with(".gyroflow") {
-                        if let Err(e) = inst.stab.load_video_file(&filesystem::path_to_url(&path), None, true) {
-                            log::error!("An error occured: {e:?}");
-                        }
+                        let url = filesystem::path_to_url(&path);
+                        let base = filesystem::get_engine_base();
+                        if let Ok(mut file) = filesystem::open_file(&base, &url, false, false) {
+                            let filesize = file.size;
+                            if let Err(e) = inst.stab.load_video_file(file.get_file(), filesize, &url, None, true) {
+                                log::error!("An error occured: {e:?}");
+                            }
+                        };
                     } else {
                         if let Err(e) = inst.stab.import_gyroflow_file(&filesystem::path_to_url(&path), true, |_|(), Arc::new(AtomicBool::new(false)), true) {
                             log::error!("import_gyroflow_file error: {e:?}");
