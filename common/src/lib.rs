@@ -575,7 +575,11 @@ impl GyroflowPluginBaseInstance {
             }
 
             if !path.ends_with(".gyroflow") {
-                match stab.load_video_file(&filesystem::path_to_url(&path), None, true) {
+                let url = filesystem::path_to_url(&path);
+                let base = filesystem::get_engine_base();
+                let mut file = filesystem::open_file(&base, &url, false, false)?;
+                let filesize = file.size;
+                match stab.load_video_file(file.get_file(), filesize, &url, None, true) {
                     Ok(md) => {
                         if out_size != (0, 0) {
                             stab.params.write().output_size = out_size; // Default to timeline output size
@@ -661,7 +665,11 @@ impl GyroflowPluginBaseInstance {
                 params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
 
                 if self.always_set_input_rotation {
-                    if let Ok(video_md) = gyroflow_core::util::get_video_metadata(stab.input_file.read().url.as_str()) {
+                    let url = stab.input_file.read().url.clone();
+                    let base = filesystem::get_engine_base();
+                    let mut file = filesystem::open_file(&base, &url, false, false)?;
+                    let filesize = file.size;
+                    if let Ok(video_md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
                         if video_md.rotation != 0 && self.reload_values_from_project {
                             let r = ((360 - video_md.rotation) % 360) as f64;
                             params.set_f64(Params::InputRotation, r)?;
