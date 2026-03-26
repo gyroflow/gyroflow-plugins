@@ -328,11 +328,11 @@ impl Execute for GyroflowPlugin {
                         {
                             log::info!("metal: src_size: {src_size:?} | {src_stride}, out_size: {out_size:?} | {out_stride}");
                             instance_data.plugin.disable_opencl();
-                            let command_queue = in_args.get_metal_command_queue()? as *mut metal::MTLCommandQueue;
+                            let command_queue = in_args.get_metal_command_queue()? as *mut std::ffi::c_void;
 
                             Some((
-                                BufferSource::MetalBuffer { buffer: source_image.get_data()? as *mut metal::MTLBuffer, command_queue },
-                                BufferSource::MetalBuffer { buffer: output_image.get_data()? as *mut metal::MTLBuffer, command_queue },
+                                BufferSource::MetalBuffer { buffer: source_image.get_data()? as *mut std::ffi::c_void, command_queue },
+                                BufferSource::MetalBuffer { buffer: output_image.get_data()? as *mut std::ffi::c_void, command_queue },
                                 instance_data.is_fusion_page
                             ))
                         }

@@ -103,8 +103,7 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
 
                     if !path.ends_with(".gyroflow") {
                         let url = filesystem::path_to_url(&path);
-                        let base = filesystem::get_engine_base();
-                        if let Ok(mut file) = filesystem::open_file(&base, &url, false, false) {
+                        if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                             let filesize = file.size;
                             if let Err(e) = inst.stab.load_video_file(file.get_file(), filesize, &url, None, true) {
                                 log::error!("An error occured: {e:?}");

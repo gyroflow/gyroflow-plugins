@@ -212,8 +212,8 @@ impl Instance {
                             ),
                             #[cfg(any(target_os = "macos", target_os = "ios"))]
                             ae::GpuFramework::Metal => (
-                                BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: device_info.command_queuePV as *mut metal::MTLCommandQueue },
-                                BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: std::ptr::null_mut() },
+                                BufferSource::MetalBuffer { buffer: in_ptr  as *mut std::ffi::c_void, command_queue: device_info.command_queuePV as *mut std::ffi::c_void },
+                                BufferSource::MetalBuffer { buffer: out_ptr as *mut std::ffi::c_void, command_queue: std::ptr::null_mut() },
                                 true
                             ),
                             ae::GpuFramework::OpenCl => (

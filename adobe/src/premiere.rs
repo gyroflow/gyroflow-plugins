@@ -209,8 +209,8 @@ impl pr::GpuFilter for PremiereGPU {
                         ),
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
                         pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_Metal => (
-                            BufferSource::MetalBuffer { buffer: in_ptr  as *mut metal::MTLBuffer, command_queue: filter.gpu_info.outCommandQueueHandle as *mut _ },
-                            BufferSource::MetalBuffer { buffer: out_ptr as *mut metal::MTLBuffer, command_queue: std::ptr::null_mut() },
+                            BufferSource::MetalBuffer { buffer: in_ptr  as *mut std::ffi::c_void, command_queue: filter.gpu_info.outCommandQueueHandle as *mut std::ffi::c_void },
+                            BufferSource::MetalBuffer { buffer: out_ptr as *mut std::ffi::c_void, command_queue: std::ptr::null_mut() },
                             true
                         ),
                         pr::sys::PrGPUDeviceFramework_PrGPUDeviceFramework_OpenCL => (

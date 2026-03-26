@@ -11,8 +11,6 @@ pub use gyroflow_core;
 pub use rfd;
 pub use parking_lot;
 pub use lru;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub use metal;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -576,8 +574,7 @@ impl GyroflowPluginBaseInstance {
 
             if !path.ends_with(".gyroflow") {
                 let url = filesystem::path_to_url(&path);
-                let base = filesystem::get_engine_base();
-                let mut file = filesystem::open_file(&base, &url, false, false)?;
+                let mut file = filesystem::open_file(&url, false, false)?;
                 let filesize = file.size;
                 match stab.load_video_file(file.get_file(), filesize, &url, None, true) {
                     Ok(md) => {
@@ -666,8 +663,7 @@ impl GyroflowPluginBaseInstance {
 
                 if self.always_set_input_rotation {
                     let url = stab.input_file.read().url.clone();
-                    let base = filesystem::get_engine_base();
-                    let mut file = filesystem::open_file(&base, &url, false, false)?;
+                    let mut file = filesystem::open_file(&url, false, false)?;
                     let filesize = file.size;
                     if let Ok(video_md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
                         if video_md.rotation != 0 && self.reload_values_from_project {
