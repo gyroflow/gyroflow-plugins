@@ -776,9 +776,9 @@ impl GyroflowPluginBaseInstance {
 
             self.update_loaded_state(params, loaded);
 
-            // Check if loaded preset/project data contains the plugin_disable_stretch flag
+            // Check if loaded preset/project/lens data contains the plugin_disable_stretch flag
             if !disable_stretch {
-                for param_id in [Params::EmbeddedPreset, Params::ProjectData] {
+                for param_id in [Params::EmbeddedLensProfile, Params::EmbeddedPreset, Params::ProjectData] {
                     if let Ok(d) = params.get_string(param_id) {
                         if !d.is_empty() {
                             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&d) {
