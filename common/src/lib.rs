@@ -92,6 +92,19 @@ impl Default for GyroflowPluginBase {
 }
 
 impl GyroflowPluginBase {
+    /// If `disable_stretch` is true, inject a `plugin_disable_stretch` flag into gyroflow JSON data
+    /// so that the setting persists when the data is embedded in a preset or project.
+    fn maybe_inject_disable_stretch(data: &str, disable_stretch: bool) -> String {
+        if !disable_stretch { return data.to_string(); }
+        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(data) {
+            json["plugin_disable_stretch"] = serde_json::Value::Bool(true);
+            if let Ok(s) = serde_json::to_string(&json) {
+                return s;
+            }
+        }
+        data.to_string()
+    }
+
     pub fn initialize_gpu_context(&mut self) {
         log::info!("GyroflowPluginBase::initialize_gpu_context");
         if !self.context_initialized {
@@ -522,7 +535,7 @@ impl GyroflowPluginBaseInstance {
     }
 
     pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
-        let disable_stretch = params.get_bool(Params::DisableStretch)?;
+        let mut disable_stretch = params.get_bool(Params::DisableStretch)?;
 
         let instance_id = params.get_string(Params::InstanceId)?;
         let path = params.get_string(Params::ProjectPath)?;
@@ -606,6 +619,7 @@ impl GyroflowPluginBaseInstance {
                         }
                         if params.get_bool(Params::IncludeProjectData)? {
                             if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                                let data = Self::maybe_inject_disable_stretch(&data, disable_stretch);
                                 params.set_string(Params::ProjectData, &data)?;
                             }
                         }
@@ -762,6 +776,23 @@ impl GyroflowPluginBaseInstance {
 
             self.update_loaded_state(params, loaded);
 
+            // Check if loaded preset/project data contains the plugin_disable_stretch flag
+            if !disable_stretch {
+                for param_id in [Params::EmbeddedPreset, Params::ProjectData] {
+                    if let Ok(d) = params.get_string(param_id) {
+                        if !d.is_empty() {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&d) {
+                                if v.get("plugin_disable_stretch").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                    disable_stretch = true;
+                                    let _ = params.set_bool(Params::DisableStretch, true);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if disable_stretch {
                 stab.disable_lens_stretch(self.anamorphic_adjust_size);
             }
@@ -894,14 +925,17 @@ impl GyroflowPluginBaseInstance {
         }
         if param == Params::IncludeProjectData {
             let path = params.get_string(Params::ProjectPath)?;
+            let ds = params.get_bool(Params::DisableStretch).unwrap_or(false);
             if params.get_bool(Params::IncludeProjectData).unwrap_or_default() {
                 if path.ends_with(".gyroflow") {
                     if let Ok(data) = std::fs::read_to_string(&path) {
                         if StabilizationManager::project_has_motion_data(data.as_bytes()) {
+                            let data = Self::maybe_inject_disable_stretch(&data, ds);
                             params.set_string(Params::ProjectData, &data)?;
                         } else {
                             if let Some((_, stab)) = self.managers.peek_lru() {
                                 if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                                    let data = Self::maybe_inject_disable_stretch(&data, ds);
                                     params.set_string(Params::ProjectData, &data)?;
                                 }
                             }
@@ -912,6 +946,7 @@ impl GyroflowPluginBaseInstance {
                 } else {
                     if let Some((_, stab)) = self.managers.peek_lru() {
                         if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                            let data = Self::maybe_inject_disable_stretch(&data, ds);
                             params.set_string(Params::ProjectData, &data)?;
                         }
                     }
