@@ -619,7 +619,7 @@ impl GyroflowPluginBaseInstance {
                         }
                         if params.get_bool(Params::IncludeProjectData)? {
                             if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                                let data = Self::maybe_inject_disable_stretch(&data, disable_stretch);
+                                let data = GyroflowPluginBase::maybe_inject_disable_stretch(&data, disable_stretch);
                                 params.set_string(Params::ProjectData, &data)?;
                             }
                         }
@@ -930,12 +930,12 @@ impl GyroflowPluginBaseInstance {
                 if path.ends_with(".gyroflow") {
                     if let Ok(data) = std::fs::read_to_string(&path) {
                         if StabilizationManager::project_has_motion_data(data.as_bytes()) {
-                            let data = Self::maybe_inject_disable_stretch(&data, ds);
+                            let data = GyroflowPluginBase::maybe_inject_disable_stretch(&data, ds);
                             params.set_string(Params::ProjectData, &data)?;
                         } else {
                             if let Some((_, stab)) = self.managers.peek_lru() {
                                 if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                                    let data = Self::maybe_inject_disable_stretch(&data, ds);
+                                    let data = GyroflowPluginBase::maybe_inject_disable_stretch(&data, ds);
                                     params.set_string(Params::ProjectData, &data)?;
                                 }
                             }
@@ -946,7 +946,7 @@ impl GyroflowPluginBaseInstance {
                 } else {
                     if let Some((_, stab)) = self.managers.peek_lru() {
                         if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
-                            let data = Self::maybe_inject_disable_stretch(&data, ds);
+                            let data = GyroflowPluginBase::maybe_inject_disable_stretch(&data, ds);
                             params.set_string(Params::ProjectData, &data)?;
                         }
                     }
