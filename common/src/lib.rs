@@ -778,16 +778,37 @@ impl GyroflowPluginBaseInstance {
 
             // Check if loaded preset/project/lens data contains the plugin_disable_stretch flag
             if !disable_stretch {
+                let has_flag = |d: &str| -> bool {
+                    serde_json::from_str::<serde_json::Value>(d).ok()
+                        .and_then(|v| v.get("plugin_disable_stretch").and_then(|v| v.as_bool()))
+                        .unwrap_or(false)
+                };
                 for param_id in [Params::EmbeddedLensProfile, Params::EmbeddedPreset, Params::ProjectData] {
                     if let Ok(d) = params.get_string(param_id) {
-                        if !d.is_empty() {
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&d) {
-                                if v.get("plugin_disable_stretch").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                    disable_stretch = true;
-                                    let _ = params.set_bool(Params::DisableStretch, true);
-                                    break;
-                                }
+                        if !d.is_empty() && has_flag(&d) {
+                            disable_stretch = true;
+                            let _ = params.set_bool(Params::DisableStretch, true);
+                            break;
+                        }
+                    }
+                }
+                // Also check default.gyroflow, which gyroflow-core auto-loads inside
+                // load_video_file but never exposes through the plugin's Embedded* params.
+                // Paths and fallback order match `StabilizationManager::load_video_file`.
+                if !disable_stretch {
+                    let paths = [
+                        gyroflow_core::settings::data_dir().join("lens_profiles").join("default.gyroflow"),
+                        gyroflow_core::lens_profile_database::LensProfileDatabase::get_path().join("default.gyroflow"),
+                    ];
+                    for path in &paths {
+                        if let Ok(d) = std::fs::read_to_string(path) {
+                            if has_flag(&d) {
+                                disable_stretch = true;
+                                let _ = params.set_bool(Params::DisableStretch, true);
+                                break;
                             }
+                            // Matches core: stop after the first existing path (settings preferred).
+                            break;
                         }
                     }
                 }
