@@ -201,7 +201,14 @@ impl Execute for GyroflowPlugin {
                 let params = stab.params.read();
                 let fps = params.fps;
                 let src_fps = instance_data.source_clip.get_frame_rate().unwrap_or(fps);
-                let org_ratio = params.size.0 as f64 / params.size.1 as f64;
+                let org_ratio = {
+                    let fr = ((params.frame_rotation % 360.0) + 360.0) % 360.0;
+                    if (fr - 90.0).abs() < 0.01 || (fr - 270.0).abs() < 0.01 {
+                        params.size.1 as f64 / params.size.0 as f64 // Portrait: NLE has pre-rotated
+                    } else {
+                        params.size.0 as f64 / params.size.1 as f64
+                    }
+                };
                 let (has_accurate_timestamps, has_offsets) = {
                     let gyro = stab.gyro.read();
                     let md = gyro.file_metadata.read();
