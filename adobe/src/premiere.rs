@@ -150,6 +150,17 @@ impl pr::GpuFilter for PremiereGPU {
                 let key = format!("{path}{disable_stretch}{instance_id}");
                 // log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
 
+                // A bin subclip has its own time domain: clip_time is relative to the subclip's
+                // start, not to the start of the master media. Media_ContentStart reports where
+                // that domain begins within the master file, and is absent (0) for a plain
+                // master clip, whose clip_time is already master-relative. Gyro data is anchored
+                // to master-file time, so without this every subclip frame gets the sample from
+                // Media_ContentStart earlier.
+                let media_content_start = match filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_ContentStart) {
+                    Ok(pr::PropertyData::Time(start)) => start as i64,
+                    _ => 0
+                };
+
                 let mut trim_range = None;
                 if let Ok(pr::PropertyData::Int64(start)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InPointMediaTimeAsTicks) {
                     if let Ok(pr::PropertyData::Int64(end)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_OutPointMediaTimeAsTicks) {
@@ -184,7 +195,7 @@ impl pr::GpuFilter for PremiereGPU {
                     let fps_ticks = if fps_ticks == 0 { ticks_per_sec / fps } else { fps_ticks as f64 };
 
                     // round the timestamp_us according to the fps, so it's never between frames and always points to a valid frame timestamp
-                    let frame = render_params.clip_time() as f64 / fps_ticks;
+                    let frame = (render_params.clip_time() + media_content_start) as f64 / fps_ticks;
                     let frame = if frame.fract() > 0.999 { frame.ceil() } else { frame.floor() };
                     let timestamp_us = (frame * (1_000_000.0 / fps)).round() as i64;
 
