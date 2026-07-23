@@ -735,7 +735,13 @@ impl Execute for GyroflowPlugin {
 
                 effect_properties.set_single_instance(false)?;
                 effect_properties.set_host_frame_threading(false)?;
-                effect_properties.set_render_thread_safety(ImageEffectRender::FullySafe)?;
+                // InstanceSafe, not FullySafe: the Render action takes `&mut InstanceData`
+                // and mutates per-instance state (the stabilization manager cache, timeline
+                // size, parameters ...). FullySafe lets the host call Render concurrently on
+                // the *same* instance, which would alias that `&mut` (undefined behaviour) and
+                // race the parameter updates. InstanceSafe still allows different instances to
+                // render in parallel.
+                effect_properties.set_render_thread_safety(ImageEffectRender::InstanceSafe)?;
                 effect_properties.set_supports_multi_resolution(true)?;
                 effect_properties.set_temporal_clip_access(true)?;
 
