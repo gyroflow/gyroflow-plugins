@@ -51,7 +51,11 @@ impl CurrentFileInfo {
     }
     pub fn query(current_file_info: Arc<Mutex<Option<Self>>>, current_file_info_pending: Arc<AtomicBool>) {
         std::thread::spawn(move || {
-            let mut cmd = std::process::Command::new(Self::get_fuscript().unwrap());
+            let Some(fuscript_path) = Self::get_fuscript() else {
+                log::error!("fuscript executable not found");
+                return;
+            };
+            let mut cmd = std::process::Command::new(fuscript_path);
             #[cfg(target_os = "windows")]
             { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
 
