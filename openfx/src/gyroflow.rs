@@ -23,7 +23,13 @@ pub fn frame_from_timetype(time: TimeType) -> f64 {
     match time {
         TimeType::Frame(x) => x,
         TimeType::FrameOrMicrosecond((Some(x), _)) => x,
-        _ => panic!("Shouldn't happen"),
+        // This is not expected to happen, but this function is reached from the
+        // parameter get/set callbacks which run across the OpenFX C ABI, so we must
+        // never panic here. Fall back to frame 0 and log instead of aborting the host.
+        other => {
+            log::error!("Unexpected TimeType in frame_from_timetype: {other:?}");
+            0.0
+        }
     }
 }
 
@@ -143,10 +149,10 @@ impl InstanceData {
             let lock = self.current_file_info.lock();
             if let Some(ref current_file) = *lock {
                 if let Some(proj) = &current_file.project_path {
-                    self.params.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
+                    let _ = self.params.set_string(Params::ProjectPath, &proj);
                 } else {
                     // Try to use the video directly
-                    self.params.set_string(Params::ProjectPath, &current_file.file_path).unwrap(); // TODO: unwrap
+                    let _ = self.params.set_string(Params::ProjectPath, &current_file.file_path);
                     return Ok(true);
                 }
             }
@@ -279,7 +285,7 @@ impl Execute for GyroflowPlugin {
 
                 let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
-                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap_or(false) {
                     let output_ratio = out_size.0 as f64 / out_size.1 as f64;
                     let mut rect = GyroflowPluginBase::get_center_rect(src_rect.2, src_rect.3, output_ratio);
                     rect.0 += src_rect.0;
@@ -548,7 +554,7 @@ impl Execute for GyroflowPlugin {
                 let instance_data = effect.get_instance_data::<InstanceData>()?;
                 let rod = instance_data.source_clip.get_region_of_definition(time)?;
                 let mut out_rod = rod;
-                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap_or(false) {
                     out_rod.x2 = instance_data.plugin.original_output_size.0 as f64;
                     out_rod.y2 = instance_data.plugin.original_output_size.1 as f64;
                 }
