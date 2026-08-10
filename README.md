@@ -48,6 +48,10 @@ This exported project file is then loaded inside the Gyroflow plugin in the vide
 
 This is especially important when working with RAW files (like BRAW or R3D), where you retain all your RAW controls like ISO, White Balance etc.
 
+### Anamorphic squeeze ratio
+
+The OpenFX and Adobe plugins support anamorphic input through the **Input Squeeze ratio** control in the plugin parameters. Choose a preset ratio or select **Custom** and enter a value from `1.0x` to `2.0x`. The plugins keep the source image unchanged and publish the calculated centered auto-crop region through the hidden `SqueezeBorder` parameter for host integrations that can consume it; the border is a guide and does not itself crop or de-squeeze the rendered image.
+
 ---
 
 This repository contains the source code of [Gyroflow](https://github.com/gyroflow/gyroflow) video editor plugins. This includes OpenFX, Adobe and frei0r.<br>
