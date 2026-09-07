@@ -23,7 +23,13 @@ pub fn frame_from_timetype(time: TimeType) -> f64 {
     match time {
         TimeType::Frame(x) => x,
         TimeType::FrameOrMicrosecond((Some(x), _)) => x,
-        _ => panic!("Shouldn't happen"),
+        // This is not expected to happen, but this function is reached from the
+        // parameter get/set callbacks which run across the OpenFX C ABI, so we must
+        // never panic here. Fall back to frame 0 and log instead of aborting the host.
+        other => {
+            log::error!("Unexpected TimeType in frame_from_timetype: {other:?}");
+            0.0
+        }
     }
 }
 
@@ -143,10 +149,10 @@ impl InstanceData {
             let lock = self.current_file_info.lock();
             if let Some(ref current_file) = *lock {
                 if let Some(proj) = &current_file.project_path {
-                    self.params.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
+                    let _ = self.params.set_string(Params::ProjectPath, &proj);
                 } else {
                     // Try to use the video directly
-                    self.params.set_string(Params::ProjectPath, &current_file.file_path).unwrap(); // TODO: unwrap
+                    let _ = self.params.set_string(Params::ProjectPath, &current_file.file_path);
                     return Ok(true);
                 }
             }
@@ -279,7 +285,7 @@ impl Execute for GyroflowPlugin {
 
                 let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
-                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap_or(false) {
                     let output_ratio = out_size.0 as f64 / out_size.1 as f64;
                     let mut rect = GyroflowPluginBase::get_center_rect(src_rect.2, src_rect.3, output_ratio);
                     rect.0 += src_rect.0;
@@ -316,9 +322,17 @@ impl Execute for GyroflowPlugin {
                     if in_args.get_opencl_enabled().unwrap_or_default() {
                         use std::ffi::c_void;
                         let queue = in_args.get_opencl_command_queue()? as *mut c_void;
+                        let src_ptr = source_image.get_data()? as *mut c_void;
+                        let dst_ptr = output_image.get_data()? as *mut c_void;
+                        // These raw pointers are handed straight to the GPU backend. A null
+                        // pointer would cause undefined behaviour there, so bail out cleanly.
+                        if queue.is_null() || src_ptr.is_null() || dst_ptr.is_null() {
+                            log::error!("OpenCL render got a null pointer (queue: {queue:?}, src: {src_ptr:?}, dst: {dst_ptr:?})");
+                            return FAILED;
+                        }
                         Some((
-                            BufferSource::OpenCL { texture: source_image.get_data()? as *mut c_void, queue },
-                            BufferSource::OpenCL { texture: output_image.get_data()? as *mut c_void, queue },
+                            BufferSource::OpenCL { texture: src_ptr, queue },
+                            BufferSource::OpenCL { texture: dst_ptr, queue },
                             false
                         ))
                     } else if in_args.get_metal_enabled().unwrap_or_default() {
@@ -329,10 +343,20 @@ impl Execute for GyroflowPlugin {
                             log::info!("metal: src_size: {src_size:?} | {src_stride}, out_size: {out_size:?} | {out_stride}");
                             instance_data.plugin.disable_opencl();
                             let command_queue = in_args.get_metal_command_queue()? as *mut std::ffi::c_void;
+                            let src_ptr = source_image.get_data()? as *mut std::ffi::c_void;
+                            let dst_ptr = output_image.get_data()? as *mut std::ffi::c_void;
+                            // The Metal command queue and buffers are raw pointers owned by the
+                            // host. The GPU backend retains the command queue and commits command
+                            // buffers on it; a null pointer there is undefined behaviour (and the
+                            // buffer null-check is not done downstream), so bail out cleanly here.
+                            if command_queue.is_null() || src_ptr.is_null() || dst_ptr.is_null() {
+                                log::error!("Metal render got a null pointer (queue: {command_queue:?}, src: {src_ptr:?}, dst: {dst_ptr:?})");
+                                return FAILED;
+                            }
 
                             Some((
-                                BufferSource::MetalBuffer { buffer: source_image.get_data()? as *mut std::ffi::c_void, command_queue },
-                                BufferSource::MetalBuffer { buffer: output_image.get_data()? as *mut std::ffi::c_void, command_queue },
+                                BufferSource::MetalBuffer { buffer: src_ptr, command_queue },
+                                BufferSource::MetalBuffer { buffer: dst_ptr, command_queue },
                                 instance_data.is_fusion_page
                             ))
                         }
@@ -342,9 +366,15 @@ impl Execute for GyroflowPlugin {
                         #[cfg(any(target_os = "windows", target_os = "linux"))]
                         {
                             instance_data.plugin.disable_opencl();
+                            let src_ptr = source_image.get_data()? as *mut std::ffi::c_void;
+                            let dst_ptr = output_image.get_data()? as *mut std::ffi::c_void;
+                            if src_ptr.is_null() || dst_ptr.is_null() {
+                                log::error!("CUDA render got a null pointer (src: {src_ptr:?}, dst: {dst_ptr:?})");
+                                return FAILED;
+                            }
                             Some((
-                                BufferSource::CUDABuffer { buffer: source_image.get_data()? as *mut std::ffi::c_void },
-                                BufferSource::CUDABuffer { buffer: output_image.get_data()? as *mut std::ffi::c_void },
+                                BufferSource::CUDABuffer { buffer: src_ptr },
+                                BufferSource::CUDABuffer { buffer: dst_ptr },
                                 true
                             ))
                         }
@@ -548,7 +578,7 @@ impl Execute for GyroflowPlugin {
                 let instance_data = effect.get_instance_data::<InstanceData>()?;
                 let rod = instance_data.source_clip.get_region_of_definition(time)?;
                 let mut out_rod = rod;
-                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap_or(false) {
                     out_rod.x2 = instance_data.plugin.original_output_size.0 as f64;
                     out_rod.y2 = instance_data.plugin.original_output_size.1 as f64;
                 }
@@ -705,7 +735,13 @@ impl Execute for GyroflowPlugin {
 
                 effect_properties.set_single_instance(false)?;
                 effect_properties.set_host_frame_threading(false)?;
-                effect_properties.set_render_thread_safety(ImageEffectRender::FullySafe)?;
+                // InstanceSafe, not FullySafe: the Render action takes `&mut InstanceData`
+                // and mutates per-instance state (the stabilization manager cache, timeline
+                // size, parameters ...). FullySafe lets the host call Render concurrently on
+                // the *same* instance, which would alias that `&mut` (undefined behaviour) and
+                // race the parameter updates. InstanceSafe still allows different instances to
+                // render in parallel.
+                effect_properties.set_render_thread_safety(ImageEffectRender::InstanceSafe)?;
                 effect_properties.set_supports_multi_resolution(true)?;
                 effect_properties.set_temporal_clip_access(true)?;
 
@@ -716,7 +752,10 @@ impl Execute for GyroflowPlugin {
                 }
 
                 let opencl_devices = gyroflow_plugin_base::opencl::OclWrapper::list_devices();
-                let wgpu_devices = std::thread::spawn(|| gyroflow_plugin_base::wgpu::WgpuWrapper::list_devices()).join().unwrap();
+                let wgpu_devices = std::thread::spawn(|| gyroflow_plugin_base::wgpu::WgpuWrapper::list_devices()).join().unwrap_or_else(|e| {
+                    log::error!("wgpu list_devices thread panicked: {e:?}");
+                    Vec::new()
+                });
                 if !opencl_devices.is_empty() {
                     let _ = effect_properties.set_opencl_render_supported("true");
                     let _ = effect_properties.set_opengl_render_supported("true");
