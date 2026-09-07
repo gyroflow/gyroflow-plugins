@@ -21,6 +21,7 @@ struct Instance {
     smoothness: f64,
     stab_overview: bool,
     time_scale: f64,
+    time_offset: f64,
 }
 
 #[no_mangle] extern "C" fn f0r_init() -> ::std::os::raw::c_int { 1 }
@@ -36,7 +37,7 @@ extern "C" fn f0r_get_plugin_info(info: *mut f0r_plugin_info) {
         (*info).frei0r_version = FREI0R_MAJOR_VERSION;
         (*info).major_version = 0;
         (*info).minor_version = 1;
-        (*info).num_params = 4;
+        (*info).num_params = 5;
         (*info).explanation = cstr!("Gyroflow video stabilization").as_ptr();
     }
 }
@@ -63,6 +64,11 @@ extern "C" fn f0r_get_param_info(info: *mut f0r_param_info, index: ::std::os::ra
                 (*info).name = cstr!("TimestampScale").as_ptr();
                 (*info).type_ = F0R_PARAM_DOUBLE;
                 (*info).explanation = cstr!("Scale for the input timestamp").as_ptr();
+            },
+            4 => {
+                (*info).name = cstr!("TimestampOffset").as_ptr();
+                (*info).type_ = F0R_PARAM_DOUBLE;
+                (*info).explanation = cstr!("Offset for the input timestamp in seconds").as_ptr();
             }
             _ => { }
         }
@@ -112,6 +118,10 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                     } else {
                         if let Err(e) = inst.stab.import_gyroflow_file(&filesystem::path_to_url(&path), true, |_|(), Arc::new(AtomicBool::new(false)), true) {
                             log::error!("import_gyroflow_file error: {e:?}");
+                        } else {
+                            // Project gyro transforms (including LPF) are restored after the
+                            // embedded motion data is loaded, so apply them before smoothing.
+                            inst.stab.recompute_gyro();
                         }
                     }
 
@@ -148,6 +158,9 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
             3 => { // Timestamp scale
                 inst.time_scale = *(param as *mut f64);
             },
+            4 => { // Timestamp offset
+                inst.time_offset = *(param as *mut f64);
+            },
             _ => { }
         }
     }
@@ -172,6 +185,9 @@ extern "C" fn f0r_get_param_value(instance: f0r_instance_t, param: f0r_param_t, 
             3 => { // Timestamp scale
                 *(param as *mut f64) = inst.time_scale;
             },
+            4 => { // Timestamp offset
+                *(param as *mut f64) = inst.time_offset;
+            },
             _ => { }
         }
     }
@@ -183,7 +199,7 @@ extern "C" fn f0r_update(instance: f0r_instance_t, time: f64, inframe: *const u3
     if instance.is_null() { return; }
     let inst = unsafe { Box::from_raw(instance as *mut Instance) };
 
-    let timestamp_us = (time * 1_000_000.0 * inst.time_scale).round() as i64;
+    let timestamp_us = ((time * inst.time_scale + inst.time_offset) * 1_000_000.0).round() as i64;
 
     let org_ratio = {
         let params = inst.stab.params.read();
