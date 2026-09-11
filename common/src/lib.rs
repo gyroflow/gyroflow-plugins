@@ -24,6 +24,7 @@ pub enum Params {
     ProjectData,
     EmbeddedLensProfile,
     EmbeddedPreset,
+    SqueezeBorder,
     ProjectGroup, ProjectGroupEnd,
     LoadCurrent,
     ProjectPath,
@@ -49,6 +50,8 @@ pub enum Params {
     VideoSpeed,
     DisableStretch,
     IntegrationMethod,
+    SqueezeRatio,
+    CustomSqueezeRatio,
     KeyframesGroup, KeyframesGroupEnd,
     UseGyroflowsKeyframes,
     RecalculateKeyframes,
@@ -69,6 +72,10 @@ pub enum Params {
     Interpolation,
     FusionStartFrame,
 }
+
+/// Fixed anamorphic squeeze ratio options (index 10 = custom slider).
+pub const ANAMORPHIC_SQUEEZE_OPTIONS: [f64; 10] =
+    [1.0, 1.25, 1.3, 4.0 / 3.0, 1.5, 1.6, 1.7, 1.8, 1.85, 2.0];
 
 thread_local! {
     pub static LOG_INITIALIZED: Cell<bool> = Cell::new(false);
@@ -170,6 +177,19 @@ impl GyroflowPluginBase {
         }
     }
 
+    /// Resolve the current anamorphic squeeze ratio from the plugin params.
+    pub fn get_squeeze(params: &dyn GyroflowPluginParams) -> f64 {
+        match params.get_i32(Params::SqueezeRatio) {
+            Ok(idx) if idx >= 0 && (idx as usize) < ANAMORPHIC_SQUEEZE_OPTIONS.len() =>
+                ANAMORPHIC_SQUEEZE_OPTIONS[idx as usize],
+            Ok(10) => params
+                .get_f64(Params::CustomSqueezeRatio)
+                .unwrap_or(4.0 / 3.0)
+                .clamp(1.0, 2.0),
+            _ => 1.0,
+        }
+    }
+
     pub fn get_project_path(file_path: &str) -> Option<String> {
         let mut project_path = std::path::Path::new(file_path).with_extension("gyroflow");
         if !project_path.exists() {
@@ -261,13 +281,14 @@ impl GyroflowPluginBase {
         }
     }
 
-    pub fn get_param_definitions() -> [ParameterType; 13] {
+    pub fn get_param_definitions() -> [ParameterType; 14] {
         [
             ParameterType::HiddenString { id: "InstanceId" },
             ParameterType::HiddenString { id: "ProjectPath" },
             ParameterType::HiddenString { id: "ProjectData" },
             ParameterType::HiddenString { id: "EmbeddedLensProfile" },
             ParameterType::HiddenString { id: "EmbeddedPreset" },
+            ParameterType::HiddenString { id: "SqueezeBorder" },
             ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", opened: true, parameters: vec![
                 ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
@@ -293,6 +314,8 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
+                ParameterType::Select   { id: "SqueezeRatio",       label: "Input Squeeze ratio",       hint: "Anamorphic squeeze ratio of the lens. When greater than 1x it only publishes the auto-crop border guide (regionW = clipH * timelineAspect / squeeze, full height, centered) to the hidden SqueezeBorder parameter; it never changes the rendered output.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
+                ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom squeeze ratio", hint: "Custom squeeze ratio (1.0x - 2.0x), used when Squeeze ratio is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -453,6 +476,10 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::VideoSpeed, loaded);
         let _ = params.set_enabled(Params::DisableStretch, loaded);
         let _ = params.set_enabled(Params::IntegrationMethod, loaded);
+        // Squeeze framing controls work regardless of gyro loading; only the
+        // custom value is gated on the "Custom" selection.
+        let _ = params.set_enabled(Params::CustomSqueezeRatio,
+                                   params.get_i32(Params::SqueezeRatio).unwrap_or(0) == 10);
         let _ = params.set_enabled(Params::ToggleOverview, loaded);
         let _ = params.set_enabled(Params::ReloadProject, loaded);
         let _ = params.set_enabled(Params::OutputWidth, loaded);
@@ -461,6 +488,89 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::OutputSizeSwap, loaded);
         let _ = params.set_string(Params::Status, if loaded { "OK" } else { "Project not loaded" });
         let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
+        self.update_squeeze_border(params);
+    }
+
+    /// Publish the squeeze-ratio border to the hidden `SqueezeBorder` param.
+    /// The border is a pure auto-crop guide: it describes the region of the
+    /// source that de-squeezes to the timeline aspect
+    /// (regionW = clipH * (timelineW / timelineH) / squeeze, capped at clipW,
+    /// full height, centered) and is published as JSON
+    /// `{"x", "y", "w", "h", "squeeze"}` in source pixels. It never changes
+    /// the rendered output.
+    pub fn update_squeeze_border(&self, params: &mut dyn GyroflowPluginParams) {
+        let squeeze = GyroflowPluginBase::get_squeeze(params);
+        let border = if squeeze > 1.001 {
+            let clip_w = self.original_video_size.0 as f64;
+            let clip_h = self.original_video_size.1 as f64;
+            let tl_w = self.timeline_size.0 as f64;
+            let tl_h = self.timeline_size.1 as f64;
+            if clip_w > 0.0 && clip_h > 0.0 && tl_w > 0.0 && tl_h > 0.0 {
+                let region_w = (clip_h * (tl_w / tl_h) / squeeze).min(clip_w);
+                Some(serde_json::json!({
+                    "x": (clip_w - region_w) / 2.0,
+                    "y": 0.0,
+                    "w": region_w,
+                    "h": clip_h,
+                    "squeeze": squeeze,
+                }))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let value = border.map(|v| v.to_string()).unwrap_or_default();
+        // Idempotent write: update_loaded_state can be reached from the render
+        // path (via set_status), so avoid touching the param when unchanged.
+        if params.get_string(Params::SqueezeBorder).unwrap_or_default() != value {
+            let _ = params.set_string(Params::SqueezeBorder, &value);
+        }
+    }
+
+    /// Internal output size for the anamorphic workflow: when SqueezeRatio >
+    /// 1, the internal output size becomes the FULL source size (W x H) so
+    /// the render maps the entire clip at natural scale (never zooming in)
+    /// into the timeline canvas (the render's out_rect centers it). The
+    /// squeeze border (SqueezeBorder) is published as an auto-crop guide only;
+    /// it never frames or clips the output. Returns None at SqueezeRatio <= 1
+    /// (original timeline-fill behavior).
+    fn anamorphic_output_size(&self, params: &dyn GyroflowPluginParams) -> Option<(usize, usize)> {
+        if GyroflowPluginBase::get_squeeze(params) <= 1.001 {
+            return None;
+        }
+        let (clip_w, clip_h) = self.original_video_size;
+        if clip_w > 0 && clip_h > 0 {
+            Some((clip_w, clip_h))
+        } else {
+            None
+        }
+    }
+
+    /// Apply the anamorphic internal output size to every loaded manager and
+    /// refit the zoom. Called when SqueezeRatio / CustomSqueezeRatio /
+    /// OutputSizeToTimeline changes.
+    fn apply_squeeze_output_size(&mut self, params: &dyn GyroflowPluginParams) {
+        let squeeze = GyroflowPluginBase::get_squeeze(params);
+        let output = self.anamorphic_output_size(params);
+        for (_, v) in self.managers.iter_mut() {
+            v.params.write().squeeze_ratio = squeeze;
+            match output {
+                Some((bw, bh)) => {
+                    v.set_output_size(bw, bh);
+                }
+                None => {
+                    if let (Ok(ow), Ok(oh)) = (
+                        params.get_f64(Params::OutputWidth),
+                        params.get_f64(Params::OutputHeight),
+                    ) {
+                        v.set_output_size(ow as _, oh as _);
+                    }
+                }
+            }
+            v.invalidate_blocking_zooming();
+            v.invalidate_blocking_undistortion();
+        }
     }
 
     pub fn initialize_instance_id(&mut self, instance_id: &mut String) {
@@ -591,11 +701,21 @@ impl GyroflowPluginBaseInstance {
                 let filesize = file.size;
                 match stab.load_video_file(file.get_file(), filesize, &url, None, true) {
                     Ok(md) => {
-                        if out_size != (0, 0) {
-                            stab.params.write().output_size = out_size; // Default to timeline output size
-                        }
                         if let Some(preset_out_size) = stab.input_file.read().preset_output_size {
                             stab.params.write().output_size = preset_out_size;
+                        }
+                        // Keep the output at the TIMELINE resolution so the
+                        // host displays the frame 1:1 (a source-sized output
+                        // gets rescaled by the host to the timeline, which can
+                        // stretch anamorphic footage). The minimal-FOV fit is
+                        // patched in gyroflow-core to target the ORIGINAL clip
+                        // framing and cancel get_fov's width/output_width
+                        // factor, so the full source renders at natural scale
+                        // in the timeline canvas (letterbox bars filled with
+                        // the background). The squeeze-ratio border
+                        // (SqueezeBorder) remains the auto-crop guide.
+                        if out_size != (0, 0) {
+                            stab.params.write().output_size = out_size;
                         }
 
                         if let Ok(d) = params.get_string(Params::EmbeddedLensProfile) {
@@ -818,6 +938,21 @@ impl GyroflowPluginBaseInstance {
                 stab.disable_lens_stretch(self.anamorphic_adjust_size);
             }
 
+            // Anamorphic mode behavior: never de-squeeze the image.
+            // Gyroflow lens profiles can carry `input_horizontal_stretch` /
+            // `input_vertical_stretch` (anamorphic de-squeeze), which the core
+            // renderer applies as a horizontal stretch (`uv /= stretch`) and
+            // through the camera matrix scaling. The C plugin ignores these
+            // fields, so force them to 1.0 here to keep the raw image
+            // unchanged; the squeeze-ratio border (SqueezeBorder) is the
+            // auto-crop guide.
+            stab.set_input_horizontal_stretch(1.0);
+            stab.set_input_vertical_stretch(1.0);
+
+            // Anamorphic squeeze ratio drives the auto-zoom fit target
+            // (gyroflow-core calculate_fovs) and the published border.
+            stab.params.write().squeeze_ratio = GyroflowPluginBase::get_squeeze(params);
+
             stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);
 
             {
@@ -827,6 +962,17 @@ impl GyroflowPluginBaseInstance {
 
             stab.init_size();
             stab.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
+            // Anamorphic mode: when the squeeze ratio is active, the
+            // internal output size becomes the FULL source size so the render
+            // maps the entire clip at natural scale into the timeline canvas
+            // (the host out_rect is set in the render path). The squeeze
+            // border (SqueezeBorder) is an auto-crop guide only and never
+            // frames/clips the output. The host ROD and OutputWidth-Height
+            // stay at the timeline resolution. The zoom stays at natural
+            // scale (fov_eff >= 1, never zooming in).
+            if let Some((bw, bh)) = self.anamorphic_output_size(params) {
+                stab.set_output_size(bw, bh);
+            }
 
             self.set_keyframe_provider(&stab);
 
@@ -943,6 +1089,18 @@ impl GyroflowPluginBaseInstance {
                 self.reload_values_from_project = true;
             }
             self.clear_stab(&manager_cache);
+        }
+        if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
+            // Publish the auto-crop border guide (no de-squeeze or stretch is
+            // ever applied to the image; framing via the border is handled by
+            // the auto-zoom fit below).
+            let _ = params.set_enabled(Params::CustomSqueezeRatio,
+                                       params.get_i32(Params::SqueezeRatio).unwrap_or(0) == 10);
+            self.update_squeeze_border(params);
+        }
+        if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
+            // Re-fit the internal output size (border vs timeline) and zoom.
+            self.apply_squeeze_output_size(params);
         }
         if param == Params::IncludeProjectData {
             let path = params.get_string(Params::ProjectPath)?;

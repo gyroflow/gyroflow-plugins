@@ -34,6 +34,7 @@ define_params!(ParamHandler {
         ProjectData         => project_data:     ParamHandle<String>,
         EmbeddedLensProfile => embedded_lens:    ParamHandle<String>,
         EmbeddedPreset      => embedded_preset:  ParamHandle<String>,
+        SqueezeBorder       => squeeze_border:   ParamHandle<String>,
         ProjectPath         => project_path:     ParamHandle<String>,
         OpenGyroflow        => open_in_gyroflow: ParamHandle<String>,
         ReloadProject       => reload_project:   ParamHandle<String>,
@@ -66,11 +67,13 @@ define_params!(ParamHandler {
         VideoSpeed            => video_speed:              ParamHandle<Double>,
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
+        CustomSqueezeRatio    => custom_squeeze_ratio:     ParamHandle<Double>,
         //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
         Interpolation         => interpolation:            ParamHandle<Int>,
         IntegrationMethod     => integration_method:       ParamHandle<Int>,
+        SqueezeRatio          => squeeze_ratio:            ParamHandle<Int>,
     ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
@@ -279,7 +282,30 @@ impl Execute for GyroflowPlugin {
 
                 let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
 
-                let mut out_rect = if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
+                // When the squeeze ratio is active, the
+                // internal output size is the FULL source size and this
+                // out_rect maps the timeline buffer's centered source region
+                // onto it 1:1, so the entire stabilized clip is shown at
+                // natural scale (never zooming in) with the area outside the
+                // source as background. The squeeze border (SqueezeBorder) is
+                // an auto-crop guide only and never frames the output.
+                let squeeze = GyroflowPluginBase::get_squeeze(&instance_data.params);
+                let mut out_rect = if squeeze > 1.001 {
+                    let clip_w = src_rect.2 as f64;
+                    let clip_h = src_rect.3 as f64;
+                    let out_w = out_size.0 as f64;
+                    let h = (clip_h as usize).min(out_size.1);
+                    if out_w > clip_w {
+                        Some((
+                            ((out_w - clip_w) / 2.0).round() as usize,
+                            0,
+                            clip_w.round() as usize,
+                            h,
+                        ))
+                    } else {
+                        None
+                    }
+                } else if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
                     let output_ratio = out_size.0 as f64 / out_size.1 as f64;
                     let mut rect = GyroflowPluginBase::get_center_rect(src_rect.2, src_rect.3, output_ratio);
                     rect.0 += src_rect.0;
@@ -435,6 +461,7 @@ impl Execute for GyroflowPlugin {
                         project_data:             param_set.parameter("ProjectData")?,
                         embedded_lens:            param_set.parameter("EmbeddedLensProfile")?,
                         embedded_preset:          param_set.parameter("EmbeddedPreset")?,
+                        squeeze_border:           param_set.parameter("SqueezeBorder")?,
                         project_path:             param_set.parameter("ProjectPath")?,
                         disable_stretch:          param_set.parameter("DisableStretch")?,
                         status:                   param_set.parameter("Status")?,
@@ -463,6 +490,8 @@ impl Execute for GyroflowPlugin {
                         output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
                         interpolation:            param_set.parameter("Interpolation")?,
                         integration_method:       param_set.parameter("IntegrationMethod")?,
+                        squeeze_ratio:            param_set.parameter("SqueezeRatio")?,
+                        custom_squeeze_ratio:     param_set.parameter("CustomSqueezeRatio")?,
 
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,

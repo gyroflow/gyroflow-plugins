@@ -31,6 +31,10 @@ Create the folder if it doesn't exist yet.
 
 # Usage
 
+## Anamorphic squeeze ratio
+
+Use **Input Squeeze ratio** in the plugin parameters to select a common anamorphic ratio or **Custom** for a value from `1.0x` to `2.0x`. In anamorphic mode, the plugin preserves the raw image and exposes the centered auto-crop region as JSON through the hidden `SqueezeBorder` parameter. This border is a guide for host integrations; it does not crop or de-squeeze the rendered image.
+
 ### Export `.gyroflow` file in the Gyroflow app
 
 Click the `Export project file (including gyro data)` in the Gyroflow app. You can also use `Ctrl+S` or `Command+S` shortcut
