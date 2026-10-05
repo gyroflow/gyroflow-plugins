@@ -103,6 +103,7 @@ impl CrossThreadInstance {
             framebuffer_inverted:           false, //unsafe { IS_PREMIERE },
             anamorphic_adjust_size:         false,
             always_set_input_rotation:      true,
+            timeline_range:                 None,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()

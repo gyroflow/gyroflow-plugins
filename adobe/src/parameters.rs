@@ -112,7 +112,7 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Checkbox { id, label, default, .. } => {
-            if id == "DontDrawOutside" { return; }
+            if id == "DontDrawOutside" || id == "ZoomTimelineRangeOnly" { return; }
             params.add_with_flags(Params::from_str(id).unwrap(), label, ae::CheckBoxDef::setup(|f| {
                 f.set_default(default);
                 f.set_value(default);

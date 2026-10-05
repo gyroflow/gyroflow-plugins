@@ -47,6 +47,7 @@ define_params!(ParamHandler {
         DisableStretch        => disable_stretch:         ParamHandle<bool>,
         ToggleOverview        => toggle_overview:         ParamHandle<bool>,
         DontDrawOutside       => dont_draw_outside:       ParamHandle<bool>,
+        ZoomTimelineRangeOnly => zoom_timeline_range_only: ParamHandle<bool>,
         IncludeProjectData    => include_project_data:    ParamHandle<bool>,
         UseGyroflowsKeyframes => use_gyroflows_keyframes: ParamHandle<bool>,
     ],
@@ -112,6 +113,7 @@ struct InstanceData {
     supports_output_size: bool,
     is_fusion_page: bool,
     file_path: Option<String>,
+    src_file_path: Option<String>,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
@@ -176,6 +178,13 @@ impl Execute for GyroflowPlugin {
                 }
 
                 let loading_pending_video_file = instance_data.check_pending_file_info()?;
+
+                instance_data.plugin.timeline_range = None;
+                if !instance_data.is_fusion_page && instance_data.params.get_bool(Params::ZoomTimelineRangeOnly).unwrap_or_default() {
+                    if let Some(src_file_path) = &instance_data.src_file_path {
+                        instance_data.plugin.timeline_range = TimelineRanges::range_at(src_file_path, time);
+                    }
+                }
 
                 let output_image = if in_args.get_opengl_enabled().unwrap_or_default() {
                     instance_data.output_clip.load_texture_mut(time, None)?
@@ -430,6 +439,7 @@ impl Execute for GyroflowPlugin {
                     supports_output_size: true,
                     is_fusion_page: false,
                     file_path: None,
+                    src_file_path: None,
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
                         project_data:             param_set.parameter("ProjectData")?,
@@ -442,6 +452,7 @@ impl Execute for GyroflowPlugin {
                         reload_project:           param_set.parameter("ReloadProject")?,
                         toggle_overview:          param_set.parameter("ToggleOverview")?,
                         dont_draw_outside:        param_set.parameter("DontDrawOutside")?,
+                        zoom_timeline_range_only: param_set.parameter("ZoomTimelineRangeOnly")?,
                         include_project_data:     param_set.parameter("IncludeProjectData")?,
                         input_rotation:           param_set.parameter("InputRotation")?,
                         use_gyroflows_keyframes:  param_set.parameter("UseGyroflowsKeyframes")?,
@@ -487,6 +498,7 @@ impl Execute for GyroflowPlugin {
                         anamorphic_adjust_size:      true,
                         always_set_input_rotation:   false,
                         has_motion:                  false,
+                        timeline_range:              None,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                             cached_keyframes:        KeyframeManager::default()
@@ -509,6 +521,7 @@ impl Execute for GyroflowPlugin {
                 if let Ok(path) = props.get_src_file_path() {
                     if !path.is_empty() {
                         instance_data.file_path = Some(path.clone());
+                        instance_data.src_file_path = Some(path.clone());
                     }
                 }
 
@@ -664,7 +677,7 @@ impl Execute for GyroflowPlugin {
                         "ProjectGroup",
                         "AdjustGroup",
                         "KeyframesGroup",
-                        "ToggleOverview", "DontDrawOutside", "IncludeProjectData"
+                        "ToggleOverview", "ZoomTimelineRangeOnly", "DontDrawOutside", "IncludeProjectData"
                     ])?;
 
                 OK

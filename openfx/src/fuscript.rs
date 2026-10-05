@@ -123,3 +123,124 @@ impl CurrentFileInfo {
         }
     }
 }
+
+/// Parts of the source clips that are used on the current Resolve timeline, queried with fuscript.
+/// One query returns all timeline items, so it's shared by all plugin instances.
+pub struct TimelineRanges;
+
+type RangesByFile = std::collections::HashMap<String, Vec<(f64, f64)>>;
+static TIMELINE_RANGES: Mutex<Option<(std::time::Instant, RangesByFile)>> = Mutex::new(None);
+static TIMELINE_RANGES_LAST_USE: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+static TIMELINE_QUERY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+impl TimelineRanges {
+    const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+    /// Pause in rendering after which the ranges may be refreshed. Don't query during continuous playback,
+    /// only when the user may have changed the timeline
+    const IDLE_BEFORE_REFRESH: std::time::Duration = std::time::Duration::from_millis(500);
+    /// How long a render waits for a fresh query before using the cached ranges
+    const QUERY_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+    /// fuscript is killed if it doesn't finish in this time
+    const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// Source frame range `[start, end)` of the timeline item that uses `file_path` at `frame`.
+    /// When the file is used multiple times, returns the item containing `frame`, or the closest one.
+    pub fn range_at(file_path: &str, frame: f64) -> Option<(f64, f64)> {
+        if !CurrentFileInfo::is_available() { return None; }
+
+        let idle = TIMELINE_RANGES_LAST_USE.lock().replace(std::time::Instant::now())
+            .map_or(true, |last_use| last_use.elapsed() > Self::IDLE_BEFORE_REFRESH);
+
+        // Only query on the first render and after a pause in rendering (eg. after trimming a clip), never during playback
+        let stale = TIMELINE_RANGES.lock().as_ref().map_or(true, |(queried_at, _)| idle && queried_at.elapsed() > Self::REFRESH_INTERVAL);
+        if stale && !TIMELINE_QUERY_IN_FLIGHT.swap(true, SeqCst) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let ranges = Self::query();
+                {
+                    let mut lock = TIMELINE_RANGES.lock();
+                    if ranges.is_some() || lock.is_none() {
+                        *lock = Some((std::time::Instant::now(), ranges.unwrap_or_default()));
+                    } else if let Some((queried_at, _)) = lock.as_mut() {
+                        *queried_at = std::time::Instant::now();
+                    }
+                }
+                TIMELINE_QUERY_IN_FLIGHT.store(false, SeqCst);
+                let _ = tx.send(());
+            });
+            // Wait briefly, so the rendered frames normally use the current range, but never block the render on fuscript:
+            // Resolve 21 answers scripting calls only after it gets this frame, so waiting for it is a deadlock
+            let _ = rx.recv_timeout(Self::QUERY_WAIT);
+        }
+
+        let lock = TIMELINE_RANGES.lock();
+        let distance = |(start, end): &(f64, f64)| if frame < *start { *start - frame } else if frame >= *end { frame - *end + 1.0 } else { 0.0 };
+        lock.as_ref()?.1.get(file_path)?.iter().copied().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+    }
+
+    fn query() -> Option<RangesByFile> {
+        let mut cmd = std::process::Command::new(CurrentFileInfo::get_fuscript()?);
+        #[cfg(target_os = "windows")]
+        { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
+
+        // Source end frame isn't consistently inclusive or exclusive, so treat it as inclusive, one extra frame doesn't matter
+        let script = r#"local tl = Resolve():GetProjectManager():GetCurrentProject():GetCurrentTimeline()
+            print("timeline")
+            for t = 1, tl:GetTrackCount("video") do
+                for _, item in ipairs(tl:GetItemListInTrack("video", t) or {}) do
+                    pcall(function()
+                        local mpi = item:GetMediaPoolItem()
+                        if mpi then
+                            local ok, s, e = pcall(function() return item:GetSourceStartFrame(), item:GetSourceEndFrame() end)
+                            if not ok or s == nil or e == nil then
+                                s = item:GetLeftOffset()
+                                e = s + item:GetDuration() - 1
+                            end
+                            print(s .. "\t" .. e .. "\t" .. mpi:GetClipProperty("File Path"))
+                        end
+                    end)
+                end
+            end"#;
+        let started = std::time::Instant::now();
+        let mut child = cmd.args(["-q", "-l", "lua", "-x", script])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn().ok()?;
+        let mut pipe = child.stdout.take()?;
+        let reader = std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut pipe, &mut out);
+            out
+        });
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if started.elapsed() < Self::QUERY_TIMEOUT => std::thread::sleep(std::time::Duration::from_millis(20)),
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    log::warn!("fuscript timeline query killed after {:?}", started.elapsed());
+                    return None;
+                }
+            }
+        }
+        if started.elapsed() > Self::QUERY_WAIT {
+            log::info!("fuscript timeline query took {:?}", started.elapsed());
+        }
+        let stdout = String::from_utf8(reader.join().ok()?).ok()?;
+        let mut lines = stdout.lines().map(str::trim);
+        if lines.next() != Some("timeline") {
+            log::debug!("fuscript timeline query failed: {stdout}");
+            return None;
+        }
+        let mut ranges = RangesByFile::new();
+        for line in lines {
+            let mut parts = line.splitn(3, '\t');
+            if let (Some(Ok(start)), Some(Ok(end)), Some(path)) = (parts.next().map(str::parse::<f64>), parts.next().map(str::parse::<f64>), parts.next()) {
+                ranges.entry(replace_frame_count(path)).or_default().push((start.floor(), end.ceil() + 1.0));
+            }
+        }
+        Some(ranges)
+    }
+}

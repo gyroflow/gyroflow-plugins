@@ -68,6 +68,7 @@ pub enum Params {
     CreateCamera,
     Interpolation,
     FusionStartFrame,
+    ZoomTimelineRangeOnly,
 }
 
 thread_local! {
@@ -261,7 +262,7 @@ impl GyroflowPluginBase {
         }
     }
 
-    pub fn get_param_definitions() -> [ParameterType; 13] {
+    pub fn get_param_definitions() -> [ParameterType; 14] {
         [
             ParameterType::HiddenString { id: "InstanceId" },
             ParameterType::HiddenString { id: "ProjectPath" },
@@ -309,6 +310,7 @@ impl GyroflowPluginBase {
                 ParameterType::Select   { id: "Interpolation",   label: "Interpolation", hint: "Scaling interpolation method", options: vec!["Lanczos4", "RobidouxSharp", "Bilinear", "Bicubic", "Robidoux", "Mitchell", "CatmullRom"], default: "Lanczos4" },
             ] },
             ParameterType::Checkbox { id: "ToggleOverview",     label: "Stabilization overview",         hint: "Zooms out the view to see the stabilization results. Disable this before rendering.", default: false },
+            ParameterType::Checkbox { id: "ZoomTimelineRangeOnly", label: "Zoom only for used part", hint: "Calculate the automatic zoom only from the part of the clip that is used on the timeline, so shaky footage you trimmed away doesn't increase the crop. DaVinci Resolve Studio only: set \"Preferences -> General -> External scripting using\" to \"Local\".", default: true },
             ParameterType::Checkbox { id: "DontDrawOutside",    label: "Don't draw outside source clip", hint: "When clip and timeline aspect ratio don't match, draw the final image inside the source clip, instead of drawing outside it.", default: false },
             ParameterType::Checkbox { id: "IncludeProjectData", label: "Embed .gyroflow data in plugin", hint: "If you intend to share the project to someone else, the plugin can embed the Gyroflow project data including gyro data inside the video editor project. This way you don't have to share .gyroflow project files. Enabling this option will make the project bigger.", default: false },
             ParameterType::Group { id: "InfoGroup", label: "Info", opened: true, parameters: vec![
@@ -390,6 +392,11 @@ pub struct GyroflowPluginBaseInstance {
     pub always_set_input_rotation: bool,
 
     pub opencl_disabled: bool,
+
+    /// Source frame range `[start, end)` of the clip that is used on the timeline.
+    /// When set, dynamic zoom is calculated only within this range.
+    #[serde(skip)]
+    pub timeline_range: Option<(f64, f64)>,
 }
 impl Clone for GyroflowPluginBaseInstance {
     fn clone(&self) -> Self {
@@ -408,6 +415,7 @@ impl Clone for GyroflowPluginBaseInstance {
             framebuffer_inverted:           self.framebuffer_inverted,
             anamorphic_adjust_size:         self.anamorphic_adjust_size,
             always_set_input_rotation:      self.always_set_input_rotation,
+            timeline_range:                 self.timeline_range,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -429,6 +437,7 @@ impl Default for GyroflowPluginBaseInstance {
             framebuffer_inverted:           false,
             anamorphic_adjust_size:         true,
             always_set_input_rotation:      false,
+            timeline_range:                 None,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -548,7 +557,9 @@ impl GyroflowPluginBaseInstance {
             self.timeline_size = out_size;
         }
 
-        let key = format!("{path}{disable_stretch}{instance_id}");
+        // Pieces of a blade-cut clip share the instance id, but can use different parts of the clip
+        let range_key = self.timeline_range.map(|(a, b)| format!("|{a}-{b}")).unwrap_or_default();
+        let key = format!("{path}{disable_stretch}{instance_id}{range_key}");
         let cloned = manager_cache.lock().get(&key).map(Arc::clone);
         let stab = if let Some(stab) = cloned {
             // Cache it in this instance as well
@@ -834,6 +845,18 @@ impl GyroflowPluginBaseInstance {
                 let mut gyro = stab.gyro.write();
                 gyro.integration_method = im as usize;
                 gyro.apply_transforms();
+            }
+
+            if let Some((start, end)) = self.timeline_range {
+                let last_frame = (self.num_frames.max(2) - 1) as f64;
+                let range = ((start / last_frame).clamp(0.0, 1.0), ((end - 1.0) / last_frame).clamp(0.0, 1.0));
+                if range.0 > 0.0 || range.1 < 1.0 {
+                    log::info!("Zoom limited to timeline range: frames {start}..{end} of {}", self.num_frames);
+                    stab.set_trim_ranges(vec![range]);
+                    // Keep smoothing the whole clip, so the camera motion stays the same and only the zoom is fit
+                    // to the used part. This way limiting the range can only reduce the zoom, never change the motion
+                    stab.smoothing.write().current_mut().set_parameter("trim_range_only", 0.0);
+                }
             }
 
             stab.invalidate_smoothing();
