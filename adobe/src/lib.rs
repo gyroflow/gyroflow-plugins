@@ -102,7 +102,8 @@ impl CrossThreadInstance {
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false, //unsafe { IS_PREMIERE },
             anamorphic_adjust_size:         false,
-            always_set_input_rotation:      true,
+            fixed_output_size:              false,
+            last_out_size:                  (0, 0),
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()
@@ -231,9 +232,11 @@ impl Instance {
                         )
                     };
 
+                    // The layer is the clip at its own size, the right way up (see `GyroflowPluginBase::render_geometry`)
                     let input_rotation = {
                         let params = ParamHandler { inner: ParamsInner::AeRO(plugin.params), stored: stored.clone() };
-                        -params.get_f64(Params::InputRotation).unwrap_or_default() as f32
+                        let video_size = stab.params.read().size;
+                        GyroflowPluginBase::render_geometry(video_size, params.get_f64(Params::InputRotation).unwrap_or_default(), (src_size.0, src_size.1), (dest_size.0, dest_size.1), true, false, false).kernel_rotation as f32
                     };
 
                     let mut buffers = Buffers {
@@ -259,19 +262,22 @@ impl Instance {
         Ok(())
     }
 
-    fn cpu_render(in_data: ae::InData, src: &Layer, dst: &mut Layer) -> Result<(), ae::Error> {
+    fn cpu_render(plugin: &PluginState, src: &Layer, dst: &mut Layer) -> Result<(), ae::Error> {
+        let in_data = plugin.in_data;
         if let Some(stab) = in_data.frame_data::<RenderData>() {
-            let RenderData { stab, .. } = stab;
+            let RenderData { stab, stored } = stab;
             let timestamp_us = (in_data.current_timestamp() * 1_000_000.0).round() as i64;
-
-            let org_ratio = {
-                let params = stab.params.read();
-                params.size.0 as f64 / params.size.1 as f64
-            };
 
             let src_size = (src.width() as usize, src.height() as usize, src.buffer_stride());
             let dst_size = (dst.width() as usize, dst.height() as usize, dst.buffer_stride());
-            let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
+
+            // The layer is the clip at its own size, the right way up (see `GyroflowPluginBase::render_geometry`)
+            let geometry = {
+                let params = ParamHandler { inner: ParamsInner::AeRO(plugin.params), stored: stored.clone() };
+                let video_size = stab.params.read().size;
+                GyroflowPluginBase::render_geometry(video_size, params.get_f64(Params::InputRotation).unwrap_or_default(), (src_size.0, src_size.1), (dst_size.0, dst_size.1), true, false, false)
+            };
+            let src_rect = geometry.src_rect;
 
             // log::info!("org_ratio: {org_ratio:?}, src_size: {src_size:?}, src_rect: {src_rect:?}, dst_size: {dst_size:?}, src.stride: {}, bit_depth: {}", src.row_bytes(), src.bit_depth());
 
@@ -279,7 +285,7 @@ impl Instance {
             let dst_buffer = unsafe { std::slice::from_raw_parts_mut(dst.buffer().as_ptr() as *mut u8, dst.buffer().len()) };
 
             let mut buffers = Buffers {
-                input:  BufferDescription { size: src_size, rect: Some(src_rect), data: BufferSource::Cpu { buffer: src_buffer }, rotation: None, texture_copy: false },
+                input:  BufferDescription { size: src_size, rect: Some(src_rect), data: BufferSource::Cpu { buffer: src_buffer }, rotation: Some(geometry.kernel_rotation as f32), texture_copy: false },
                 output: BufferDescription { size: dst_size, rect: None,           data: BufferSource::Cpu { buffer: dst_buffer }, rotation: None, texture_copy: false }
             };
             if let Err(e) = match src.bit_depth() {
@@ -620,7 +626,7 @@ impl AdobePluginInstance for CrossThreadInstance {
     }
 
     fn render(&self, plugin: &mut PluginState, src: &Layer, dst: &mut Layer) -> Result<(), ae::Error> {
-        Instance::cpu_render(plugin.in_data, src, dst)
+        Instance::cpu_render(plugin, src, dst)
     }
 
     fn handle_command(&mut self, plugin: &mut PluginState, cmd: ae::Command) -> Result<(), ae::Error> {

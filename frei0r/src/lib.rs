@@ -7,7 +7,7 @@ use frei0r::*;
 use cstr::cstr;
 use std::sync::{ Arc, atomic::AtomicBool };
 
-use gyroflow_plugin_base::gyroflow_core::{ StabilizationManager, filesystem, stabilization::RGBA8, stabilization::Interpolation };
+use gyroflow_plugin_base::gyroflow_core::{ self, StabilizationManager, filesystem, stabilization::RGBA8, stabilization::Interpolation };
 use gyroflow_plugin_base::gyroflow_core::gpu::{ BufferDescription, Buffers, BufferSource };
 use gyroflow_plugin_base::GyroflowPluginBase;
 
@@ -22,6 +22,9 @@ struct Instance {
     stab_overview: bool,
     time_scale: f64,
     time_offset: f64,
+    // How the clip is turned in the frame, and whether the stabilized image stays where the clip is (see `GyroflowPluginBase::render_geometry`)
+    input_rotation: f64,
+    keep_clip_frame: bool,
 }
 
 #[no_mangle] extern "C" fn f0r_init() -> ::std::os::raw::c_int { 1 }
@@ -107,12 +110,19 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                 if path != inst.path {
                     inst.path = path.clone();
 
+                    // Shotcut (MLT) shows videos turned by their rotation metadata
+                    let mut metadata_rotation = 0;
                     if !path.ends_with(".gyroflow") {
                         let url = filesystem::path_to_url(&path);
                         if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                             let filesize = file.size;
-                            if let Err(e) = inst.stab.load_video_file(file.get_file(), filesize, &url, None, true) {
-                                log::error!("An error occured: {e:?}");
+                            match inst.stab.load_video_file(file.get_file(), filesize, &url, None, true) {
+                                Ok(md) => {
+                                    metadata_rotation = md.rotation;
+                                    // The output the right way up too, like the app does
+                                    inst.stab.params.write().video_rotation = GyroflowPluginBase::input_rotation_from_metadata(md.rotation);
+                                },
+                                Err(e) => log::error!("An error occured: {e:?}")
                             }
                         };
                     } else {
@@ -123,15 +133,30 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                             // embedded motion data is loaded, so apply them before smoothing.
                             inst.stab.recompute_gyro();
                         }
+                        // The output rotation is the project's
+                        let url = inst.stab.input_file.read().url.clone();
+                        if let Ok(mut file) = filesystem::open_file(&url, false, false) {
+                            let filesize = file.size;
+                            if let Ok(md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
+                                metadata_rotation = md.rotation;
+                            }
+                        }
                     }
+                    inst.input_rotation = GyroflowPluginBase::input_rotation_from_metadata(metadata_rotation);
 
+                    // The clip is fitted in the frame, turned (`render_geometry` finds it there). The frame Gyroflow stabilizes
+                    // stays the video's own size: lens metadata in pixels (Sony, Canon) is of that size, so scaling it to the
+                    // clip's size in the frame made those lenses meaningless and the output black
                     let video_size = inst.stab.params.read().size;
-
-                    let org_ratio = video_size.0 as f64 / video_size.1 as f64;
-
-                    let src_rect = GyroflowPluginBase::get_center_rect(inst.width, inst.height, org_ratio);
-                    inst.stab.set_size(src_rect.2, src_rect.3);
-                    inst.stab.set_output_size(inst.width, inst.height);
+                    let clip = GyroflowPluginBase::rotated_size(video_size, inst.input_rotation);
+                    // The stabilized image fills the frame, except that a vertical clip in a horizontal frame keeps its pillarbox
+                    // (see `GyroflowPluginBaseInstance::keep_clip_frame`)
+                    inst.keep_clip_frame = clip.1 > clip.0 && inst.width > inst.height;
+                    if inst.keep_clip_frame {
+                        inst.stab.set_output_size(clip.0, clip.1);
+                    } else {
+                        inst.stab.set_output_size(inst.width, inst.height);
+                    }
 
                     inst.stab.invalidate_smoothing();
                     inst.stab.recompute_blocking();
@@ -201,13 +226,9 @@ extern "C" fn f0r_update(instance: f0r_instance_t, time: f64, inframe: *const u3
 
     let timestamp_us = ((time * inst.time_scale + inst.time_offset) * 1_000_000.0).round() as i64;
 
-    let org_ratio = {
-        let params = inst.stab.params.read();
-        params.size.0 as f64 / params.size.1 as f64
-    };
-
+    let video_size = inst.stab.params.read().size;
     let src_size = (inst.width, inst.height, inst.width * 4);
-    let src_rect = GyroflowPluginBase::get_center_rect(inst.width, inst.height, org_ratio);
+    let geometry = GyroflowPluginBase::render_geometry(video_size, inst.input_rotation, (inst.width, inst.height), (inst.width, inst.height), false, inst.keep_clip_frame, false);
 
     let inframe  = unsafe { std::slice::from_raw_parts_mut(inframe as *mut u8, inst.width * inst.height * 4) };
     let outframe = unsafe { std::slice::from_raw_parts_mut(outframe as *mut u8, inst.width * inst.height * 4) };
@@ -215,14 +236,14 @@ extern "C" fn f0r_update(instance: f0r_instance_t, time: f64, inframe: *const u3
     let mut buffers = Buffers {
         input: BufferDescription {
             size: src_size,
-            rect: Some(src_rect),
+            rect: Some(geometry.src_rect),
             data: BufferSource::Cpu { buffer: inframe },
-            rotation: None,
+            rotation: Some(geometry.kernel_rotation as f32),
             texture_copy: false
         },
         output: BufferDescription {
             size: src_size,
-            rect: None,
+            rect: geometry.out_rect,
             data: BufferSource::Cpu { buffer: outframe },
             rotation: None,
             texture_copy: false

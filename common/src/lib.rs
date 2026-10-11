@@ -170,6 +170,52 @@ impl GyroflowPluginBase {
         }
     }
 
+    /// Whether a rotation in degrees is a quarter turn either way, ie. swaps the width and height of the frame
+    pub fn is_quarter_turn(rotation: f64) -> bool {
+        (rotation.rem_euclid(180.0) - 90.0).abs() < 1.0
+    }
+    /// `size` turned by `rotation` degrees
+    pub fn rotated_size(size: (usize, usize), rotation: f64) -> (usize, usize) {
+        if Self::is_quarter_turn(rotation) { (size.1, size.0) } else { size }
+    }
+    /// The InputRotation of a video file: hosts show the video the right way up, turned by its rotation metadata, and the
+    /// input rotation is that turn from the frame Gyroflow stabilizes (the decoded frame, before the metadata is applied)
+    pub fn input_rotation_from_metadata(metadata_rotation: i32) -> f64 {
+        ((360 - metadata_rotation.rem_euclid(360)) % 360) as f64
+    }
+
+    /// Where the clip is in the host's buffers, and how it's turned there.
+    ///
+    /// `video_size` is the frame Gyroflow stabilizes and `input_rotation` how the host turned it (the InputRotation
+    /// parameter). The host fits the turned frame in the input buffer, centered: Resolve's Edit and Color pages hand the
+    /// timeline, with the clip letterboxed or pillarboxed in it. The rotation can't be told from the buffer's size there (a
+    /// vertical 4K clip in a 4K timeline is a 3840x2160 buffer either way), but with `clip_sized_input` the host hands the
+    /// clip at its own size (Resolve's Fusion page, Adobe), so a buffer of the frame's own, unturned shape means the host
+    /// didn't turn it, whatever the metadata says.
+    ///
+    /// With `keep_clip_frame` the stabilized image is drawn where the clip is fitted in the output buffer, at its aspect
+    /// (the output size has to be the clip's then, see `GyroflowPluginBaseInstance::output_size_for`), otherwise over the
+    /// whole output buffer. Hosts with top-down buffers pass `framebuffer_inverted = false` and get the rotation the kernel
+    /// needs for them, which is the other way around (InputRotation is a turn of the image as seen on screen)
+    pub fn render_geometry(video_size: (usize, usize), input_rotation: f64, src_size: (usize, usize), out_size: (usize, usize), clip_sized_input: bool, keep_clip_frame: bool, framebuffer_inverted: bool) -> RenderGeometry {
+        let mut input_rotation = input_rotation;
+        if clip_sized_input && Self::is_quarter_turn(input_rotation) && video_size.0 != video_size.1 && src_size.0 > 0 && src_size.1 > 0 {
+            let ratio = |s: (usize, usize)| s.0 as f64 / s.1 as f64;
+            let src = ratio(src_size);
+            if (src / ratio(video_size) - 1.0).abs() < 0.01 && (src / ratio((video_size.1, video_size.0)) - 1.0).abs() > 0.01 {
+                input_rotation = 0.0;
+            }
+        }
+        let clip_size = Self::rotated_size(video_size, input_rotation);
+        let clip_ratio = clip_size.0 as f64 / clip_size.1.max(1) as f64;
+        RenderGeometry {
+            input_rotation,
+            kernel_rotation: if framebuffer_inverted { input_rotation } else { -input_rotation },
+            src_rect: Self::get_center_rect(src_size.0, src_size.1, clip_ratio),
+            out_rect: if keep_clip_frame { Some(Self::get_center_rect(out_size.0, out_size.1, clip_ratio)) } else { None },
+        }
+    }
+
     pub fn get_project_path(file_path: &str) -> Option<String> {
         let mut project_path = std::path::Path::new(file_path).with_extension("gyroflow");
         if !project_path.exists() {
@@ -320,6 +366,19 @@ impl GyroflowPluginBase {
     }
 }
 
+/// See `GyroflowPluginBase::render_geometry`
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RenderGeometry {
+    /// How the host turned the clip, in degrees (InputRotation, or 0 when the host evidently didn't turn it)
+    pub input_rotation: f64,
+    /// The rotation to give the input buffer
+    pub kernel_rotation: f64,
+    /// Where the clip is in the input buffer
+    pub src_rect: (usize, usize, usize, usize),
+    /// Where the stabilized image goes in the output buffer, `None` for all of it
+    pub out_rect: Option<(usize, usize, usize, usize)>,
+}
+
 pub enum ParameterType {
     HiddenString { id: &'static str },
     TextBox      { id: &'static str, label: &'static str, hint: &'static str },
@@ -387,7 +446,10 @@ pub struct GyroflowPluginBaseInstance {
     pub cache_keyframes_every_frame: bool,
     pub framebuffer_inverted: bool,
     pub anamorphic_adjust_size: bool,
-    pub always_set_input_rotation: bool,
+    /// The host's output buffer has a size of its own, which the plugin can't change (Resolve's Edit and Color pages hand the timeline)
+    pub fixed_output_size: bool,
+    /// The output buffer's size at the last render, to fit the output size to again when parameters change
+    pub last_out_size: (usize, usize),
 
     pub opencl_disabled: bool,
 }
@@ -407,7 +469,8 @@ impl Clone for GyroflowPluginBaseInstance {
             cache_keyframes_every_frame:    self.cache_keyframes_every_frame,
             framebuffer_inverted:           self.framebuffer_inverted,
             anamorphic_adjust_size:         self.anamorphic_adjust_size,
-            always_set_input_rotation:      self.always_set_input_rotation,
+            fixed_output_size:              self.fixed_output_size,
+            last_out_size:                  self.last_out_size,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -428,7 +491,8 @@ impl Default for GyroflowPluginBaseInstance {
             cache_keyframes_every_frame:    true,
             framebuffer_inverted:           false,
             anamorphic_adjust_size:         true,
-            always_set_input_rotation:      false,
+            fixed_output_size:              false,
+            last_out_size:                  (0, 0),
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -461,6 +525,57 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::OutputSizeSwap, loaded);
         let _ = params.set_string(Params::Status, if loaded { "OK" } else { "Project not loaded" });
         let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
+    }
+
+    /// Whether the stabilized image is drawn where the clip is, at its aspect (see `GyroflowPluginBase::render_geometry`):
+    /// when asked to with "Don't draw outside source clip", and for a vertical clip in a horizontal timeline the plugin
+    /// can't resize. Filling the timeline is what a 4:3 clip in a 16:9 timeline or a horizontal clip in a vertical one is
+    /// after, but out of a vertical clip in a horizontal timeline it would keep a third of its height, so it stays pillarboxed
+    pub fn keep_clip_frame(&self, params: &dyn GyroflowPluginParams, video_size: (usize, usize), input_rotation: f64, out_size: (usize, usize)) -> bool {
+        if params.get_bool(Params::DontDrawOutside).unwrap_or_default() {
+            return true;
+        }
+        let clip = GyroflowPluginBase::rotated_size(video_size, input_rotation);
+        self.fixed_output_size && clip.1 > clip.0 && out_size.0 > out_size.1
+    }
+
+    /// The output size to stabilize to: the clip's own frame when the image is drawn where the clip is, the host's buffer
+    /// when it has a size of its own, and the plugin's output size otherwise
+    pub fn output_size_for(&self, params: &dyn GyroflowPluginParams, video_size: (usize, usize), input_rotation: f64, out_size: (usize, usize)) -> (usize, usize) {
+        if self.keep_clip_frame(params, video_size, input_rotation, out_size) {
+            GyroflowPluginBase::rotated_size(video_size, input_rotation)
+        } else if self.fixed_output_size && out_size.0 > 0 && out_size.1 > 0 {
+            out_size
+        } else {
+            (params.get_f64(Params::OutputWidth).unwrap_or_default() as usize, params.get_f64(Params::OutputHeight).unwrap_or_default() as usize)
+        }
+    }
+
+    /// Makes the output size's aspect `size`'s. The size itself doesn't matter, the output is drawn into whatever rect it
+    /// gets, but a different aspect would stretch it. Each change of the output size starts the stabilization over, and
+    /// hosts render thumbnails through the plugin at sizes of their own (Resolve: 504x284 for the clip, about the
+    /// timeline's aspect, and 161x80 for the node, an aspect of its own), so small ones and near misses are let through
+    pub fn ensure_output_aspect(stab: &StabilizationManager, size: (usize, usize)) {
+        if size.0.max(size.1) < 320 || size.0 == 0 || size.1 == 0 { return; }
+        let current = stab.params.read().output_size;
+        let aspect = |s: (usize, usize)| s.0 as f64 / s.1.max(1) as f64;
+        if current.0 == 0 || current.1 == 0 || (aspect(current) / aspect(size) - 1.0).abs() > 0.01 {
+            stab.set_output_size(size.0, size.1);
+        }
+    }
+
+    /// Applies the Rotation and InputRotation parameters to the stabilization: the video rotation, and the output size,
+    /// which is fitted to the video turned by it and, drawn where the clip is, has the clip's aspect
+    pub fn apply_rotation(&self, params: &dyn GyroflowPluginParams, stab: &StabilizationManager, out_size: (usize, usize)) {
+        if let Ok(rotation) = params.get_f64(Params::Rotation) {
+            stab.params.write().video_rotation = rotation;
+        }
+        let video_size = stab.params.read().size;
+        let input_rotation = params.get_f64(Params::InputRotation).unwrap_or_default();
+        let (w, h) = self.output_size_for(params, video_size, input_rotation, out_size);
+        if w > 0 && h > 0 {
+            stab.set_output_size(w, h);
+        }
     }
 
     pub fn initialize_instance_id(&mut self, instance_id: &mut String) {
@@ -547,6 +662,9 @@ impl GyroflowPluginBaseInstance {
         if self.timeline_size == (0, 0) {
             self.timeline_size = out_size;
         }
+        if out_size.0.max(out_size.1) >= 320 { // not a thumbnail, see `ensure_output_aspect`
+            self.last_out_size = out_size;
+        }
 
         let key = format!("{path}{disable_stretch}{instance_id}");
         let cloned = manager_cache.lock().get(&key).map(Arc::clone);
@@ -617,16 +735,18 @@ impl GyroflowPluginBaseInstance {
                                 }
                             }
                         }
+                        if self.reload_values_from_project {
+                            // The host shows the video turned by its rotation metadata, and so does the output by default.
+                            // Set for unrotated videos too, a vertical video loaded before must not leave its rotation behind
+                            let r = GyroflowPluginBase::input_rotation_from_metadata(md.rotation);
+                            params.set_f64(Params::InputRotation, r)?;
+                            stab.params.write().video_rotation = r;
+                        }
                         if params.get_bool(Params::IncludeProjectData)? {
                             if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
                                 let data = GyroflowPluginBase::maybe_inject_disable_stretch(&data, disable_stretch);
                                 params.set_string(Params::ProjectData, &data)?;
                             }
-                        }
-                        if md.rotation != 0 && self.reload_values_from_project {
-                            let r = ((360 - md.rotation) % 360) as f64;
-                            params.set_f64(Params::InputRotation, r)?;
-                            stab.params.write().video_rotation = r;
                         }
                         params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
                         if !stab.gyro.read().file_metadata.read().has_accurate_timestamps && open_gyroflow_if_no_data {
@@ -675,15 +795,14 @@ impl GyroflowPluginBaseInstance {
                 })?;
                 params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
 
-                if self.always_set_input_rotation {
+                if self.reload_values_from_project {
+                    // The host shows the video turned by its rotation metadata (Resolve on all its pages, Premiere and After
+                    // Effects). The output rotation is the project's, which the app set from the same metadata or the user changed
                     let url = stab.input_file.read().url.clone();
-                    let mut file = filesystem::open_file(&url, false, false)?;
+                    if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                     let filesize = file.size;
                     if let Ok(video_md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
-                        if video_md.rotation != 0 && self.reload_values_from_project {
-                            let r = ((360 - video_md.rotation) % 360) as f64;
-                            params.set_f64(Params::InputRotation, r)?;
-                            stab.params.write().video_rotation = r;
+                            params.set_f64(Params::InputRotation, GyroflowPluginBase::input_rotation_from_metadata(video_md.rotation))?;
                         }
                     }
                 }
@@ -826,7 +945,9 @@ impl GyroflowPluginBaseInstance {
             }
 
             stab.init_size();
-            stab.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
+            // The video rotation from the parameter, which the host restores with the project, and the output size fitted to
+            // it, for the output buffer of the last render that wasn't a thumbnail
+            self.apply_rotation(params, &stab, if self.last_out_size != (0, 0) { self.last_out_size } else { out_size });
 
             self.set_keyframe_provider(&stab);
 
@@ -987,8 +1108,9 @@ impl GyroflowPluginBaseInstance {
                     params.set_f64(Params::OutputWidth, self.timeline_size.0 as f64)?;
                     params.set_f64(Params::OutputHeight, self.timeline_size.1 as f64)?;
                 }
-                for (_, v) in self.managers.iter_mut() {
-                    v.set_output_size(params.get_f64(Params::OutputWidth)? as _, params.get_f64(Params::OutputHeight)? as _);
+                let managers = self.managers.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+                for v in &managers {
+                    self.apply_rotation(params, v, self.last_out_size);
                     v.invalidate_blocking_zooming();
                 }
             }
@@ -1008,7 +1130,8 @@ impl GyroflowPluginBaseInstance {
                     }
                     let use_gyroflows_keyframes = params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
                     self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
-                    for (_, v) in self.managers.iter_mut() {
+                    let managers = self.managers.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+                    for v in &managers {
                         match param {
                             Params::IntegrationMethod => {
                                 if let Ok(im) = params.get_i32(Params::IntegrationMethod) {
@@ -1025,7 +1148,11 @@ impl GyroflowPluginBaseInstance {
                                 v.invalidate_blocking_zooming();
                             },
                             //Params::PositionX | Params::PositionY |
-                            Params::LensCorrectionStrength | Params::Rotation => {
+                            Params::LensCorrectionStrength => {
+                                v.invalidate_blocking_zooming();
+                            },
+                            Params::Rotation | Params::InputRotation => {
+                                self.apply_rotation(params, v, self.last_out_size);
                                 v.invalidate_blocking_zooming();
                             },
                             _ => { }

@@ -232,7 +232,9 @@ impl pr::GpuFilter for PremiereGPU {
                         _ => panic!("Invalid GPU framework")
                     };
 
-                    let input_rotation = -params.get_f64(Params::InputRotation).unwrap() as f32;
+                    // The clip at its own size, the right way up (see `GyroflowPluginBase::render_geometry`)
+                    let video_size = stab.params.read().size;
+                    let input_rotation = GyroflowPluginBase::render_geometry(video_size, params.get_f64(Params::InputRotation).unwrap_or_default(), (src_size.0, src_size.1), (dest_size.0, dest_size.1), true, false, false).kernel_rotation as f32;
 
                     let mut buffers = Buffers {
                         input:  BufferDescription { size: src_size,  rect: None,           data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },
