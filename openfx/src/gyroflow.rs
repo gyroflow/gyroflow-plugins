@@ -489,6 +489,7 @@ impl Execute for GyroflowPlugin {
                         num_frames:                  0,
                         fps:                         0.0,
                         reload_values_from_project:  false,
+                        keep_adjustments:            false,
                         ever_changed:                false,
                         opencl_disabled:             false,
                         cache_keyframes_every_frame: true,
