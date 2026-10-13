@@ -202,7 +202,7 @@ impl GyroflowPluginBase {
         log::info!("GyroflowPluginBase::deinitialize_gpu_context");
     }
 
-    pub fn initialize_log(&mut self, name: &str) {
+    pub fn initialize_log(&self, name: &str) {
         LOG_INITIALIZED.with(|x| {
             if !x.get() {
                 log_panics::init();
