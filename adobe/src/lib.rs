@@ -26,10 +26,10 @@ static mut IS_PREMIERE: bool = false;
 /// After Effects' UI thread, which sets up the plugin, and its effects (see `effect_instances`)
 static UI_THREAD: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 static GLOBAL_INST: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-pub(crate) fn global_inst<'a>() -> &'a mut Plugin {
+pub(crate) fn global_inst<'a>() -> &'a Plugin {
     unsafe {
-        let ptr = (*GLOBAL_INST.get_or_init(|| 0)) as *mut Plugin;
-        &mut *ptr
+        let ptr = (*GLOBAL_INST.get_or_init(|| 0)) as *const Plugin;
+        &*ptr
     }
 }
 
@@ -711,7 +711,7 @@ impl AdobePluginGlobal for Plugin {
         Ok(())
     }
 
-    fn handle_command(&mut self, cmd: ae::Command, in_data: InData, mut out_data: OutData, _params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
+    fn handle_command(&self, cmd: ae::Command, in_data: InData, mut out_data: OutData, _params: &mut ae::Parameters<Params>) -> Result<(), ae::Error> {
         self.gyroflow.initialize_log("adobe");
 
         // log::info!("global command: {:?}, thread: {:?}, ptr: {:?}, effect_ref: {:?}", cmd, std::thread::current().id(), self as *const _, in_data.effect_ref().as_ptr());
@@ -726,7 +726,7 @@ impl AdobePluginGlobal for Plugin {
                 if in_data.is_premiere() {
                     unsafe {
                         IS_PREMIERE = true;
-                        GLOBAL_INST.set(self as *mut _ as usize).unwrap();
+                        GLOBAL_INST.set(self as *const _ as usize).unwrap();
                     }
                     use ae::pr::PixelFormat::*;
                     let pixel_format = ae::pf::suites::PixelFormat::new()?;
