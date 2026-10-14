@@ -65,6 +65,7 @@ pub enum Params {
     CreateCamera,
     Interpolation,
     FusionStartFrame,
+    SaveDefault,
 }
 
 thread_local! {
@@ -425,6 +426,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
+                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -1442,6 +1444,49 @@ impl GyroflowPluginBaseInstance {
                         self.reload_values_from_project = true;
                     }
                     self.clear_stab(&manager_cache);
+                }
+            }
+        }
+        if param == Params::SaveDefault {
+            let result = (|| -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+                let mut stabilization = serde_json::json!({
+                    "fov":                    params.get_f64(Params::Fov)?,
+                    "max_zoom":               params.get_f64(Params::ZoomLimit)?,
+                    "lens_correction_amount": (params.get_f64(Params::LensCorrectionStrength)? / 100.0).clamp(0.0, 1.0),
+                    "smoothing_params":       [{ "name": "smoothness", "value": params.get_f64(Params::Smoothness)? / 100.0 }],
+                    "horizon_lock_amount":    params.get_f64(Params::HorizonLockAmount)?,
+                    "horizon_lock_roll":      params.get_f64(Params::HorizonLockRoll)?,
+                });
+                // The smoothing method of the loaded clip
+                if let Some((_, m)) = self.managers.iter().next() {
+                    if let Ok(data) = m.export_gyroflow_data(gyroflow_core::GyroflowProjectType::Simple, "{}", None) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                            if let Some(method) = json.get("stabilization").and_then(|x| x.get("method")).cloned() {
+                                stabilization["method"] = method;
+                            }
+                        }
+                    }
+                }
+                let preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                // The preset the core applies to every newly loaded video (see `StabilizationManager::load_video_file`)
+                let dir = gyroflow_core::settings::data_dir().join("lens_profiles");
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join("default.gyroflow");
+                if path.exists() {
+                    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|x| x.as_secs()).unwrap_or(0);
+                    let _ = std::fs::copy(&path, dir.join(format!("default.gyroflow.bak-{ts}")));
+                }
+                std::fs::write(&path, serde_json::to_string_pretty(&preset)?)?;
+                Ok(path)
+            })();
+            match result {
+                Ok(path) => {
+                    log::info!("Saved default preset to {path:?}");
+                    rfd::MessageDialog::new().set_description(format!("Default settings saved.\nThey will be applied to the next clips loaded.\n\n{}", path.display())).show();
+                },
+                Err(e) => {
+                    log::error!("Failed to save default preset: {e:?}");
+                    rfd::MessageDialog::new().set_description(format!("Failed to save default settings: {e}")).show();
                 }
             }
         }
