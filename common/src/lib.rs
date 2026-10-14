@@ -798,7 +798,15 @@ impl GyroflowPluginBaseInstance {
     ];
     pub fn cache_keyframes(&mut self, params: &dyn GyroflowPluginParams, use_gyroflows_keyframes: bool, num_frames: usize, fps: f64) {
         let mut mgr = KeyframeManager::new();
+        // Vertical clips get their quarter-turn rotation both as the input and the video rotation, and come out upside
+        // down when the horizon is locked: lock it 180° around in that case
+        let horizon_roll_offset = {
+            let input_rot = params.get_f64(Params::InputRotation).unwrap_or(0.0).rem_euclid(360.0);
+            let video_rot = params.get_f64(Params::Rotation).unwrap_or(0.0).rem_euclid(360.0);
+            if GyroflowPluginBase::is_quarter_turn(input_rot) && (video_rot - input_rot).abs() < 1.0 { 180.0 } else { 0.0 }
+        };
         for (typ, param, scale) in Self::KEYFRAMABLE_PARAMS {
+            let offset = if typ == KeyframeType::LockHorizonRoll { horizon_roll_offset } else { 0.0 };
             if params.is_keyframed(param) {
                 log::info!("param: {:?} is keyframed, cache_keyframes_every_frame: {}", param, self.cache_keyframes_every_frame);
                 if self.cache_keyframes_every_frame { // Query every frame
@@ -807,7 +815,7 @@ impl GyroflowPluginBaseInstance {
                         let timestamp_us = ((time / fps * 1_000_000.0)).round() as i64;
 
                         if let Ok(v) = params.get_f64_at_time(param, TimeType::FrameOrMicrosecond((Some(time), Some(timestamp_us)))) {
-                            mgr.set(&typ, timestamp_us, v / scale);
+                            mgr.set(&typ, timestamp_us, v / scale + offset);
                         }
                     }
                 } else {
@@ -822,13 +830,13 @@ impl GyroflowPluginBaseInstance {
                             TimeType::FrameOrMicrosecond((None, None)) => unreachable!(),
                         };
 
-                        mgr.set(&typ, timestamp_us, v / scale);
+                        mgr.set(&typ, timestamp_us, v / scale + offset);
                     }
                 }
             } else {
                 log::info!("param: {:?} NOT keyframed", param);
                 if let Ok(v) = params.get_f64(param) {
-                    mgr.set(&typ, 0, v / scale);
+                    mgr.set(&typ, 0, v / scale + offset);
                 }
             }
         }
