@@ -202,10 +202,10 @@ impl Execute for GyroflowPlugin {
                 let fps = params.fps;
                 let src_fps = instance_data.source_clip.get_frame_rate().unwrap_or(fps);
                 let video_size = params.size;
-                let (has_accurate_timestamps, has_offsets) = {
+                let (has_accurate_timestamps, has_offsets, has_gyro) = {
                     let gyro = stab.gyro.read();
                     let md = gyro.file_metadata.read();
-                    (md.has_accurate_timestamps, !gyro.get_offsets().is_empty())
+                    (md.has_accurate_timestamps, !gyro.get_offsets().is_empty(), !gyro.quaternions.is_empty())
                 };
 
                 let mut speed_stretch = 1.0;
@@ -225,8 +225,15 @@ impl Execute for GyroflowPlugin {
                     speed_stretch = 1.0;
                 }
 
-                if (src_fps - fps).abs() > 0.01 {
-                    instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
+                // The host may tell which source frame it renders (Resolve does, retimed and conformed clips included): the
+                // timestamps are exact then, whatever the frame rates
+                let src_frame = in_args.get_src_frame().ok();
+
+                if !has_gyro {
+                    instance_data.plugin.set_status(&mut instance_data.params, "No gyro data in this file", "This file has no motion data (a transcode or an export of the original, or a camera without gyro). Use the original camera file, or open it in Gyroflow to load the motion data from another file.", false);
+                } else if (src_fps - fps).abs() > 0.01 && src_frame.is_none() {
+                    let status = format!("Timeline fps mismatch! ({fps:.3} clip, {src_fps:.3} timeline)");
+                    instance_data.plugin.set_status(&mut instance_data.params, &status, "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
                 } else if !has_accurate_timestamps && !has_offsets {
                     instance_data.plugin.set_status(&mut instance_data.params, "Not synced. Open in Gyroflow", "Gyro data is not synced with the video, open the video in Gyroflow and add sync points (eg. by doing autosync)", false);
                 } else {
@@ -244,7 +251,7 @@ impl Execute for GyroflowPlugin {
                     let frame = (time / src_fps) * fps * speed_stretch;
                     timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
                 }
-                if let Ok(frame) = in_args.get_src_frame() {
+                if let Some(frame) = src_frame {
                     timestamp_us = (frame as f64 * (1_000_000.0 / fps)).round() as i64;
                 }
 
