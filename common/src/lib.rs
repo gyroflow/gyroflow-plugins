@@ -65,6 +65,7 @@ pub enum Params {
     CreateCamera,
     Interpolation,
     FusionStartFrame,
+    SaveDefault,
 }
 
 thread_local! {
@@ -425,6 +426,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
+                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -798,7 +800,15 @@ impl GyroflowPluginBaseInstance {
     ];
     pub fn cache_keyframes(&mut self, params: &dyn GyroflowPluginParams, use_gyroflows_keyframes: bool, num_frames: usize, fps: f64) {
         let mut mgr = KeyframeManager::new();
+        // Vertical clips get their quarter-turn rotation both as the input and the video rotation, and come out upside
+        // down when the horizon is locked: lock it 180° around in that case
+        let horizon_roll_offset = {
+            let input_rot = params.get_f64(Params::InputRotation).unwrap_or(0.0).rem_euclid(360.0);
+            let video_rot = params.get_f64(Params::Rotation).unwrap_or(0.0).rem_euclid(360.0);
+            if GyroflowPluginBase::is_quarter_turn(input_rot) && (video_rot - input_rot).abs() < 1.0 { 180.0 } else { 0.0 }
+        };
         for (typ, param, scale) in Self::KEYFRAMABLE_PARAMS {
+            let offset = if typ == KeyframeType::LockHorizonRoll { horizon_roll_offset } else { 0.0 };
             if params.is_keyframed(param) {
                 log::info!("param: {:?} is keyframed, cache_keyframes_every_frame: {}", param, self.cache_keyframes_every_frame);
                 if self.cache_keyframes_every_frame { // Query every frame
@@ -807,7 +817,7 @@ impl GyroflowPluginBaseInstance {
                         let timestamp_us = ((time / fps * 1_000_000.0)).round() as i64;
 
                         if let Ok(v) = params.get_f64_at_time(param, TimeType::FrameOrMicrosecond((Some(time), Some(timestamp_us)))) {
-                            mgr.set(&typ, timestamp_us, v / scale);
+                            mgr.set(&typ, timestamp_us, v / scale + offset);
                         }
                     }
                 } else {
@@ -822,13 +832,13 @@ impl GyroflowPluginBaseInstance {
                             TimeType::FrameOrMicrosecond((None, None)) => unreachable!(),
                         };
 
-                        mgr.set(&typ, timestamp_us, v / scale);
+                        mgr.set(&typ, timestamp_us, v / scale + offset);
                     }
                 }
             } else {
                 log::info!("param: {:?} NOT keyframed", param);
                 if let Ok(v) = params.get_f64(param) {
-                    mgr.set(&typ, 0, v / scale);
+                    mgr.set(&typ, 0, v / scale + offset);
                 }
             }
         }
@@ -1434,6 +1444,49 @@ impl GyroflowPluginBaseInstance {
                         self.reload_values_from_project = true;
                     }
                     self.clear_stab(&manager_cache);
+                }
+            }
+        }
+        if param == Params::SaveDefault {
+            let result = (|| -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+                let mut stabilization = serde_json::json!({
+                    "fov":                    params.get_f64(Params::Fov)?,
+                    "max_zoom":               params.get_f64(Params::ZoomLimit)?,
+                    "lens_correction_amount": (params.get_f64(Params::LensCorrectionStrength)? / 100.0).clamp(0.0, 1.0),
+                    "smoothing_params":       [{ "name": "smoothness", "value": params.get_f64(Params::Smoothness)? / 100.0 }],
+                    "horizon_lock_amount":    params.get_f64(Params::HorizonLockAmount)?,
+                    "horizon_lock_roll":      params.get_f64(Params::HorizonLockRoll)?,
+                });
+                // The smoothing method of the loaded clip
+                if let Some((_, m)) = self.managers.iter().next() {
+                    if let Ok(data) = m.export_gyroflow_data(gyroflow_core::GyroflowProjectType::Simple, "{}", None) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                            if let Some(method) = json.get("stabilization").and_then(|x| x.get("method")).cloned() {
+                                stabilization["method"] = method;
+                            }
+                        }
+                    }
+                }
+                let preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                // The preset the core applies to every newly loaded video (see `StabilizationManager::load_video_file`)
+                let dir = gyroflow_core::settings::data_dir().join("lens_profiles");
+                std::fs::create_dir_all(&dir)?;
+                let path = dir.join("default.gyroflow");
+                if path.exists() {
+                    let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|x| x.as_secs()).unwrap_or(0);
+                    let _ = std::fs::copy(&path, dir.join(format!("default.gyroflow.bak-{ts}")));
+                }
+                std::fs::write(&path, serde_json::to_string_pretty(&preset)?)?;
+                Ok(path)
+            })();
+            match result {
+                Ok(path) => {
+                    log::info!("Saved default preset to {path:?}");
+                    rfd::MessageDialog::new().set_description(format!("Default settings saved.\nThey will be applied to the next clips loaded.\n\n{}", path.display())).show();
+                },
+                Err(e) => {
+                    log::error!("Failed to save default preset: {e:?}");
+                    rfd::MessageDialog::new().set_description(format!("Failed to save default settings: {e}")).show();
                 }
             }
         }
