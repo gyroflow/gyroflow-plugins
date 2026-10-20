@@ -310,6 +310,21 @@ pub fn arb_handle(def: &ae::ParamDef) -> Result<ae::sys::PF_Handle, ae::Error> {
     Ok(unsafe { def.as_ref().u.arb_d.value })
 }
 
+/// `label` as a C string that stays as long as the plugin, for a button's label. The host reads the label through the
+/// pointer, after the call that sets it and maybe for as long as it draws the button, so it can't be the `CString` of
+/// `ButtonDef::set_label`, which goes with the `ButtonDef`, before the parameter is even updated with it
+fn button_label(label: &str) -> PluginResult<*const std::ffi::c_char> {
+    static LABELS: std::sync::LazyLock<parking_lot::Mutex<Vec<&'static std::ffi::CStr>>> = std::sync::LazyLock::new(Default::default);
+    let mut labels = LABELS.lock();
+    if let Some(x) = labels.iter().find(|x| x.to_bytes() == label.as_bytes()) {
+        return Ok(x.as_ptr());
+    }
+    // Kept for good, the buttons have a few labels each
+    let x: &'static std::ffi::CStr = Box::leak(std::ffi::CString::new(label)?.into_boxed_c_str());
+    labels.push(x);
+    Ok(x.as_ptr())
+}
+
 fn is_keyframable(p: Params) -> bool {
     GyroflowPluginBaseInstance::KEYFRAMABLE_PARAMS.iter().any(|x| x.1 == p)
 }
@@ -550,7 +565,8 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
             ParamsInner::Ae(x) => {
                 let mut x = x.get_mut(p)?.clone();
                 if p == Params::OpenGyroflow {
-                    x.as_button_mut()?.set_label(label);
+                    x.as_button()?;
+                    x.as_mut().u.button_d.u.namesptr = button_label(label)?;
                 } else {
                     x.set_name(label)?;
                 }

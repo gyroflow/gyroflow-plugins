@@ -412,9 +412,13 @@ impl CrossThreadInstance {
 
     /// A copy of this instance, as a new instance
     fn copy(&self) -> Self {
+        Self::copy_of(&self.get().unwrap().read())
+    }
+    /// A copy of `src`, as a new instance
+    fn copy_of(src: &Instance) -> Self {
         let new = Self::default();
-        let (src, dst) = (self.get().unwrap(), new.get().unwrap());
-        let (src, mut dst) = (src.read(), dst.write());
+        let dst = new.get().unwrap();
+        let mut dst = dst.write();
         *dst.stored.write() = src.stored.read().clone();
         dst.gyroflow = src.gyroflow.clone();
         new

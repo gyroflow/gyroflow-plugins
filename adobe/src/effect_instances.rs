@@ -185,7 +185,7 @@ impl CrossThreadInstance {
         // Another effect's: copied with this one. Made without the lock, as the instance copied may be held for long (a
         // render loading its project)
         let copy = saved.and_then(|(version, bytes)| sequence_data::decode(version, bytes).map_err(|e| log::error!("Failed to copy the saved instance: {e}")).ok())
-                        .map(|(_, inst)| Self::insert(inst))
+                        .map(|(_, inst)| self.loaded_since(&inst).unwrap_or_else(|| Self::insert(inst)))
                         .unwrap_or_else(|| self.copy());
         if let Some(inst) = copy.get() {
             let mut inst = inst.write();
@@ -218,6 +218,22 @@ impl CrossThreadInstance {
             source.sync_copies(self.id);
         }
         Self { id }
+    }
+
+    /// A copy of the instance as it is now, when `saved`, what was copied of it, is from before it loaded its project.
+    /// Premiere's render threads load it, which doesn't tell Premiere the sequence data changed, and it copies the pieces
+    /// of a cut clip with its sequence data from before. A copy of that would share the stabilization, but not what was
+    /// loaded with it for the clip: the input rotation of a vertical clip (squeezed into the frame without it), the output
+    /// size. `None` when it's held (a render loading its project), or has another stabilization than the one copied
+    fn loaded_since(&self, saved: &Instance) -> Option<Self> {
+        let inst = self.get()?;
+        let inst = inst.try_read()?;
+        let loaded = |x: &Instance| x.gyroflow.as_ref().is_some_and(|x| !x.reload_values_from_project);
+        if loaded(saved) || !loaded(&inst) || inst.stored.read().instance_id != saved.stored.read().instance_id {
+            return None;
+        }
+        log::info!("The instance {} loaded its project since it was copied, copying it as it is now", self.id);
+        Some(Self::copy_of(&inst))
     }
 
     /// Gives the instance the state saved in `bytes` by a build of `version`, when it has changed since
@@ -316,6 +332,50 @@ mod tests {
             assert_eq!(media(&copy), "A.MP4");
             assert_eq!(CrossThreadInstance { id: original.id }.of_effect(b, false, None, false).id, copy.id);
         }
+    }
+
+    fn input_rotation(inst: &CrossThreadInstance) -> Option<f64> {
+        inst.get().unwrap().read().stored.read().pending_params_f64.get(&Params::InputRotation).copied()
+    }
+    /// What the plugin sets when it loads the project of a vertical clip
+    fn load_vertical(inst: &CrossThreadInstance) {
+        let inst = inst.get().unwrap();
+        let mut inst = inst.write();
+        inst.stored.write().pending_params_f64.insert(Params::InputRotation, 270.0);
+        inst.gyroflow.as_mut().unwrap().reload_values_from_project = false;
+    }
+
+    #[test]
+    fn pieces_of_a_cut_clip_get_what_was_loaded_after_the_sequence_data_was_saved() {
+        let (a, b) = filters();
+        let original = CrossThreadInstance::default();
+        original.of_effect(a, true, None, false);
+        // Premiere's sequence data of the effect as it was applied, and the project loaded on a render thread since
+        let (version, saved) = original.flatten().unwrap();
+        load_vertical(&original);
+
+        let piece = CrossThreadInstance { id: original.id }.of_effect(b, true, Some((version, &saved)), false);
+        assert_ne!(piece.id, original.id);
+        assert_eq!(input_rotation(&piece), Some(270.0));
+        assert!(!piece.get().unwrap().read().gyroflow.as_ref().unwrap().reload_values_from_project);
+        // Sharing the stabilization
+        assert_eq!(piece.get().unwrap().read().stored.read().instance_id, original.get().unwrap().read().stored.read().instance_id);
+        assert!(!Arc::ptr_eq(&piece.get().unwrap().read().stored, &original.get().unwrap().read().stored));
+    }
+
+    #[test]
+    fn copies_of_sequence_data_saved_after_the_load_get_what_was_copied() {
+        let (a, b) = filters();
+        let original = CrossThreadInstance::default();
+        original.of_effect(a, true, None, false);
+        load_vertical(&original);
+        set_media(&original, "A.MP4");
+        let (version, saved) = original.flatten().unwrap();
+        set_media(&original, "A2.MP4");
+
+        let copy = CrossThreadInstance { id: original.id }.of_effect(b, true, Some((version, &saved)), false);
+        assert_eq!(media(&copy), "A.MP4");
+        assert_eq!(input_rotation(&copy), Some(270.0));
     }
 
     #[test]
