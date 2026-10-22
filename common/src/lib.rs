@@ -153,8 +153,8 @@ impl GyroflowPluginBase {
         copy(Some("stabilization"), &["fov", "method", "smoothing_params", "horizon_lock_amount", "horizon_lock_roll", "horizon_lock_pitch_enabled",
                                       "horizon_lock_pitch", "use_gravity_vectors", "frame_readout_time", "frame_readout_direction",
                                       "adaptive_zoom_window", "adaptive_zoom_center_offset", "adaptive_zoom_method", "additional_rotation",
-                                      "additional_translation", "max_zoom", "max_zoom_iterations", "lens_correction_amount", "video_speed",
-                                      "video_speed_affects_smoothing", "video_speed_affects_zooming", "video_speed_affects_zooming_limit",
+                                      "additional_translation", "max_zoom", "max_zoom_iterations", "fixed_zoom", "zoom_limit_whole_clip", "lens_correction_amount",
+                                      "video_speed", "video_speed_affects_smoothing", "video_speed_affects_zooming", "video_speed_affects_zooming_limit",
                                       "focal_length_smoothing_enabled", "focal_length_max_zoom_rate", "lens_metadata_delay_frames", "lens_breathing_enabled"]);
         copy(Some("output"), &["output_width", "output_height", "interpolation"]);
         preset.retain(|_, v| !v.as_object().is_some_and(|x| x.is_empty()));
