@@ -20,7 +20,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 [[package]]
 name = "after-effects"
 version = "0.4.0"
-source = "git+https://github.com/virtualritz/after-effects.git#c6a1af3fc8885000bcf9ecb84a9c1b986fe7303d"
+source = "git+https://github.com/virtualritz/after-effects.git#c2eb86609b293f046b18bc3e18e110dcc9ae9f17"
 dependencies = [
  "after-effects-sys",
  "bincode",
@@ -33,7 +33,7 @@ dependencies = [
  "objc2-core-foundation",
  "once_cell",
  "oslog",
- "parking_lot 0.12.5",
+ "parking_lot 0.13.0",
  "paste",
  "serde",
  "serde_json",
@@ -250,12 +250,6 @@ dependencies = [
  "rustc-demangle",
  "windows-link",
 ]
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -2621,14 +2615,14 @@ dependencies = [
 [[package]]
 name = "premiere"
 version = "0.4.0"
-source = "git+https://github.com/virtualritz/after-effects.git#c6a1af3fc8885000bcf9ecb84a9c1b986fe7303d"
+source = "git+https://github.com/virtualritz/after-effects.git#c2eb86609b293f046b18bc3e18e110dcc9ae9f17"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bincode",
  "bitflags 2.13.2",
  "fastrand",
  "log",
- "parking_lot 0.12.5",
+ "parking_lot 0.13.0",
  "premiere-sys",
  "serde",
 ]
@@ -3716,7 +3710,7 @@ version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cde93ff05758a36a851a398a772b0b79a82fbe3c186a46f2696baaeaf84c966b"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "flate2",
  "log",
  "percent-encoding",
@@ -3733,7 +3727,7 @@ version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841583fc36089d7d59419568ae157f43a5a03a2e5a81ba87c77d1596ef46e922"
 dependencies = [
- "base64 0.23.1",
+ "base64",
  "http",
  "httparse",
  "log",
