@@ -151,10 +151,11 @@ impl GyroflowPluginBase {
         copy(Some("synchronization"), &["initial_offset", "initial_offset_inv", "search_size", "calc_initial_fast", "max_sync_points",
                                         "every_nth_frame", "time_per_syncpoint", "of_method", "offset_method", "pose_method", "auto_sync_points"]);
         copy(Some("stabilization"), &["fov", "method", "smoothing_params", "horizon_lock_amount", "horizon_lock_roll", "horizon_lock_pitch_enabled",
-                                      "horizon_lock_pitch", "use_gravity_vectors", "frame_readout_time", "frame_readout_direction",
+                                      "horizon_lock_pitch", "use_gravity_vectors", "automatic_lock", "turn_threshold", "turn_smoothing_ms", "turn_multiplier",
+                                      "tilt_accel_limit", "frame_readout_time", "frame_readout_direction",
                                       "adaptive_zoom_window", "adaptive_zoom_center_offset", "adaptive_zoom_method", "additional_rotation",
                                       "additional_translation", "max_zoom", "max_zoom_iterations", "fixed_zoom", "zoom_limit_whole_clip", "lens_correction_amount",
-                                      "video_speed", "video_speed_affects_smoothing", "video_speed_affects_zooming", "video_speed_affects_zooming_limit",
+                                      "output_projection", "video_speed", "video_speed_affects_smoothing", "video_speed_affects_zooming", "video_speed_affects_zooming_limit",
                                       "focal_length_smoothing_enabled", "focal_length_max_zoom_rate", "lens_metadata_delay_frames", "lens_breathing_enabled"]);
         copy(Some("output"), &["output_width", "output_height", "interpolation"]);
         preset.retain(|_, v| !v.as_object().is_some_and(|x| x.is_empty()));
