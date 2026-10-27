@@ -1136,7 +1136,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.6.3"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=7e1a8fe#7e1a8fe0ccc7c08ffcef5d81eb0f0942c5d64465"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=7c3e8c4#7c3e8c49721c9a5776cf07ee5e94ac18f4a0b65f"
 dependencies = [
  "ahrs",
  "akaze",
@@ -1321,12 +1321,6 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
-
-[[package]]
-name = "human-sort"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "140a09c9305e6d5e557e2ed7cbc68e05765a7d4213975b87cb04920689cc6219"
 
 [[package]]
 name = "iana-time-zone"
@@ -2316,9 +2310,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "ordered-float"
-version = "5.5.0"
+version = "5.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c7c9e0d9b23589f26070720bac724174bfec1083e82f7854cdd0267518343c0"
+checksum = "7f59006ce1e204c30956638535b74d317bca99477b9356dfaec54c37f6f600ab"
 dependencies = [
  "num-traits 0.2.19",
 ]
@@ -3215,7 +3209,7 @@ source = "git+https://github.com/Rust-GPU/rust-gpu?rev=854e9ba#854e9ba7da26d52ca
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=7e1a8fe#7e1a8fe0ccc7c08ffcef5d81eb0f0942c5d64465"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=7c3e8c4#7c3e8c49721c9a5776cf07ee5e94ac18f4a0b65f"
 dependencies = [
  "spirv-std",
 ]
@@ -3297,7 +3291,7 @@ dependencies = [
 [[package]]
 name = "telemetry-parser"
 version = "0.4.0"
-source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=2817b42#2817b427751a261b289cb41d8605094e2a08f6cb"
+source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=6701e64#6701e6465a77e8dcac60c92e646587f729689658"
 dependencies = [
  "argh",
  "byteorder",
@@ -3306,7 +3300,6 @@ dependencies = [
  "fc-blackbox-patched",
  "half",
  "hex-literal",
- "human-sort",
  "jni 0.22.4",
  "log",
  "memchr",
