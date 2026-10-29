@@ -1100,7 +1100,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.6.3"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=7c3e8c4#7c3e8c49721c9a5776cf07ee5e94ac18f4a0b65f"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=a9fb5b8#a9fb5b89b6b95a3ce374bd44d7ec117d4c5a7ae0"
 dependencies = [
  "ahrs",
  "akaze",
@@ -3110,7 +3110,7 @@ source = "git+https://github.com/Rust-GPU/rust-gpu?rev=854e9ba#854e9ba7da26d52ca
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=7c3e8c4#7c3e8c49721c9a5776cf07ee5e94ac18f4a0b65f"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=a9fb5b8#a9fb5b89b6b95a3ce374bd44d7ec117d4c5a7ae0"
 dependencies = [
  "spirv-std",
 ]
@@ -3192,7 +3192,7 @@ dependencies = [
 [[package]]
 name = "telemetry-parser"
 version = "0.4.0"
-source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=6701e64#6701e6465a77e8dcac60c92e646587f729689658"
+source = "git+https://github.com/AdrianEddy/telemetry-parser.git?rev=bd69820#bd69820eddcd04ce2f525701277e0f0269296068"
 dependencies = [
  "argh",
  "byteorder",
@@ -3378,9 +3378,9 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unicode-width"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "unsafe-libyaml"
