@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Renamed the effect display name to `Gyroflow (Omni)` in OpenFX, Adobe, frei0r, and Shotcut, and the repository to `gyroflow-plugins-omni`. Internal plugin identifiers and bundle filenames stay compatible with existing projects.
+- Added Nikon NRAW (`.NEV`) and Nikon R3D NE (`.R3D`) container metadata loading, including NRAW files renamed to `.R3D`, across the shared plugin loader and frei0r.
+- Added `.NEV` to the file picker and Nikon metadata handling to footage matching and project rotation lookup. Existing BRAW timing uses the core path unchanged.
+- Validated all three supplied Nikon ZR samples: 6060x3410 at 24000/1001 fps, 147/147/15 frames. The current parser extracts no IMU samples, so direct loading alone cannot provide gyro stabilization; RAW image decoding remains the editor's responsibility.
 - Merged upstream `gyroflow/gyroflow-plugins` through `8a239ce` (2026-10-29), including core and dependency updates, preset persistence, instance isolation, and rotation fixes.
 - Adapted anamorphic full-source framing to upstream's rotation-aware geometry and public core API. Active anamorphic mode disables automatic zoom and keeps the squeeze border as a guide; the FOV control remains available.
 - Separate stabilization cache entries by squeeze ratio so anamorphic settings cannot affect an instance using another ratio.

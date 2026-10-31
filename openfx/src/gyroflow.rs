@@ -721,9 +721,9 @@ impl Execute for GyroflowPlugin {
                 let mut effect_properties: EffectDescriptor = effect.properties()?;
                 effect_properties.set_grouping("Warp")?;
 
-                effect_properties.set_label("Gyroflow")?;
-                effect_properties.set_short_label("Gyroflow")?;
-                effect_properties.set_long_label("Gyroflow")?;
+                effect_properties.set_label("Gyroflow (Omni)")?;
+                effect_properties.set_short_label("Gyroflow (Omni)")?;
+                effect_properties.set_long_label("Gyroflow (Omni)")?;
 
                 effect_properties.set_supported_pixel_depths(&[BitDepth::Byte, BitDepth::Short, BitDepth::Float])?;
                 effect_properties.set_supported_contexts(&[ImageEffectContext::Filter])?;

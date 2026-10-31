@@ -4,6 +4,8 @@ use parking_lot::{ Mutex, RwLock };
 use std::cell::Cell;
 use std::sync::{ Arc, Weak, atomic::AtomicBool };
 
+pub mod video_metadata;
+
 pub use gyroflow_core::{ StabilizationManager, keyframes::*, stabilization::*, filesystem, gpu::* };
 pub use gyroflow_core;
 
@@ -175,7 +177,7 @@ impl GyroflowPluginBase {
         let url = filesystem::path_to_url(path);
         let mut file = filesystem::open_file(&url, false, false).ok()?;
         let filesize = file.size;
-        let md = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url).ok()?;
+        let md = video_metadata::get_video_metadata(file.get_file(), filesize, &url).ok()?;
         Some(Footage { size: (md.width, md.height), fps: md.fps, duration_ms: md.duration_s * 1000.0 }).filter(Footage::is_known)
     }
     /// The footage the project `data` was made for (a video's data embedded with "Include project data" says it too)
@@ -1171,7 +1173,7 @@ impl GyroflowPluginBaseInstance {
                 // A file that can't be opened (moved, or on a volume that isn't mounted) is one that can't be loaded
                 let loaded = filesystem::open_file(&url, false, false).map_err(gyroflow_core::GyroflowCoreError::from).and_then(|mut file| {
                     let filesize = file.size;
-                    stab.load_video_file(file.get_file(), filesize, &url, None, true)
+                    video_metadata::load_video_file(&stab, file.get_file(), filesize, &url)
                 });
                 match loaded {
                     Ok(md) => {
@@ -1251,7 +1253,7 @@ impl GyroflowPluginBaseInstance {
                     let url = stab.input_file.read().url.clone();
                     if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                         let filesize = file.size;
-                        if let Ok(video_md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
+                        if let Ok(video_md) = video_metadata::get_video_metadata(file.get_file(), filesize, &url) {
                             params.set_f64(Params::InputRotation, GyroflowPluginBase::input_rotation_from_metadata(video_md.rotation))?;
                         }
                     }
@@ -1437,7 +1439,7 @@ impl GyroflowPluginBaseInstance {
 
     pub fn browse(current_path: &str) -> String {
         let mut d = rfd::FileDialog::new()
-            .add_filter("Project and video files", &["mp4", "mov", "mxf", "braw", "r3d", "insv", "gyroflow"]);
+            .add_filter("Project and video files", &["mp4", "mov", "mxf", "braw", "r3d", "nev", "insv", "gyroflow"]);
         if !current_path.is_empty() {
             if let Some(path) = std::path::Path::new(current_path).parent() {
                 d = d.set_directory(path);

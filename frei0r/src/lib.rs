@@ -7,7 +7,7 @@ use frei0r::*;
 use cstr::cstr;
 use std::sync::{ Arc, atomic::AtomicBool };
 
-use gyroflow_plugin_base::gyroflow_core::{ self, StabilizationManager, filesystem, stabilization::RGBA8, stabilization::Interpolation };
+use gyroflow_plugin_base::gyroflow_core::{ StabilizationManager, filesystem, stabilization::RGBA8, stabilization::Interpolation };
 use gyroflow_plugin_base::gyroflow_core::gpu::{ BufferDescription, Buffers, BufferSource };
 use gyroflow_plugin_base::GyroflowPluginBase;
 
@@ -33,7 +33,7 @@ struct Instance {
 #[no_mangle]
 extern "C" fn f0r_get_plugin_info(info: *mut f0r_plugin_info) {
     unsafe {
-        (*info).name = cstr!("Gyroflow").as_ptr();
+        (*info).name = cstr!("Gyroflow (Omni)").as_ptr();
         (*info).author = cstr!("AdrianEddy").as_ptr();
         (*info).plugin_type = F0R_PLUGIN_TYPE_FILTER;
         (*info).color_model = F0R_COLOR_MODEL_PACKED32;
@@ -41,7 +41,7 @@ extern "C" fn f0r_get_plugin_info(info: *mut f0r_plugin_info) {
         (*info).major_version = 0;
         (*info).minor_version = 1;
         (*info).num_params = 5;
-        (*info).explanation = cstr!("Gyroflow video stabilization").as_ptr();
+        (*info).explanation = cstr!("Gyroflow (Omni) video stabilization").as_ptr();
     }
 }
 #[no_mangle]
@@ -116,7 +116,7 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                         let url = filesystem::path_to_url(&path);
                         if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                             let filesize = file.size;
-                            match inst.stab.load_video_file(file.get_file(), filesize, &url, None, true) {
+                            match gyroflow_plugin_base::video_metadata::load_video_file(&inst.stab, file.get_file(), filesize, &url) {
                                 Ok(md) => {
                                     metadata_rotation = md.rotation;
                                     // The output the right way up too, like the app does
@@ -137,7 +137,7 @@ extern "C" fn f0r_set_param_value(instance: f0r_instance_t, param: f0r_param_t, 
                         let url = inst.stab.input_file.read().url.clone();
                         if let Ok(mut file) = filesystem::open_file(&url, false, false) {
                             let filesize = file.size;
-                            if let Ok(md) = gyroflow_core::util::get_video_metadata(file.get_file(), filesize, &url) {
+                            if let Ok(md) = gyroflow_plugin_base::video_metadata::get_video_metadata(file.get_file(), filesize, &url) {
                                 metadata_rotation = md.rotation;
                             }
                         }

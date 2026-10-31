@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleIdentifier</key>
     <string>xyz.gyroflow.ofx</string>
+    <key>CFBundleDisplayName</key>
+    <string>Gyroflow (Omni)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
 	<key>CFBundleExecutable</key>
