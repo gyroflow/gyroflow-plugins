@@ -976,7 +976,7 @@ impl GyroflowPluginBaseInstance {
     /// The key of the stabilization the instance renders with, in `managers` and the manager cache: of the project, loaded
     /// with Disable stretch or not, for the instance id. The instances that share it share the instance id (see `ever_changed`)
     pub fn stab_key(params: &dyn GyroflowPluginParams) -> PluginResult<String> {
-        Ok(format!("{}{}{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, params.get_string(Params::InstanceId)?))
+        Ok(format!("{}{}{}:{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params)))
     }
 
     /// Whether an edit of `param` changes what the instance sets up its stabilization with (see `configure`), which it
@@ -1175,6 +1175,9 @@ impl GyroflowPluginBaseInstance {
                 });
                 match loaded {
                     Ok(md) => {
+                        if out_size != (0, 0) {
+                            stab.params.write().output_size = out_size; // Default to timeline output size
+                        }
                         if let Some(preset_out_size) = stab.input_file.read().preset_output_size {
                             stab.params.write().output_size = preset_out_size;
                         }
@@ -1591,15 +1594,13 @@ impl GyroflowPluginBaseInstance {
             self.clear_stab(&manager_cache);
         }
         if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
-            // Publish the auto-crop border guide (no de-squeeze or stretch is
-            // ever applied to the image; framing via the border is handled by
-            // the auto-zoom fit below).
+            // Publish the source-pixel auto-crop guide.
             let _ = params.set_enabled(Params::CustomSqueezeRatio,
                                        params.get_i32(Params::SqueezeRatio).unwrap_or(0) == 10);
             self.update_squeeze_border(params);
         }
         if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
-            // Re-fit the internal output size (border vs timeline) and zoom.
+            // Reload the stored zoom settings when anamorphic mode is disabled.
             self.clear_stab(&manager_cache);
         }
         if param == Params::IncludeProjectData {
@@ -1941,6 +1942,41 @@ mod tests {
     }
     fn id(params: &TestParams) -> String {
         params.get_string(Params::InstanceId).unwrap()
+    }
+
+    #[test]
+    fn anamorphic_framing_preserves_upstream_rotation_and_border() {
+        let mut params = params();
+        params.i32s.insert(Params::SqueezeRatio, 3);
+        let mut inst = GyroflowPluginBaseInstance {
+            original_video_size: (3840, 2160),
+            timeline_size: (1920, 1080),
+            fixed_output_size: true,
+            ..Default::default()
+        };
+        inst.update_squeeze_border(&mut params);
+        let border: serde_json::Value = serde_json::from_str(&params.get_string(Params::SqueezeBorder).unwrap()).unwrap();
+        assert_eq!(border["w"], 2880.0);
+        assert_eq!(border["x"], 480.0);
+        assert_eq!(inst.output_size_for(&params, (3840, 2160), 90.0, (1920, 1080)), (2160, 3840));
+        let geometry = GyroflowPluginBase::render_geometry((3840, 2160), 90.0, (1920, 1080), (1920, 1080), false, true, true);
+        assert_eq!(geometry.src_rect, (656, 0, 608, 1080));
+        assert_eq!(geometry.out_rect, Some(geometry.src_rect));
+
+        let stab = StabilizationManager::default();
+        stab.init_from_video_data(1000.0, 24.0, 24, (3840, 2160));
+        params.f64s.insert(Params::InputRotation, 90.0);
+        params.f64s.insert(Params::Rotation, 90.0);
+        inst.configure(&mut params, &stab, (1920, 1080), false).unwrap();
+        assert_eq!(stab.params.read().adaptive_zoom_window, 0.0);
+        assert_eq!(stab.params.read().output_size, (2160, 3840));
+
+        let anamorphic_key = GyroflowPluginBaseInstance::stab_key(&params).unwrap();
+        params.i32s.insert(Params::SqueezeRatio, 0);
+        assert_ne!(GyroflowPluginBaseInstance::stab_key(&params).unwrap(), anamorphic_key);
+        inst.update_squeeze_border(&mut params);
+        assert!(params.get_string(Params::SqueezeBorder).unwrap().is_empty());
+        assert_eq!(inst.output_size_for(&params, (3840, 2160), 0.0, (1920, 1080)), (1920, 1080));
     }
 
     #[test]

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Merged upstream `gyroflow/gyroflow-plugins` through `8a239ce` (2026-10-29), including core and dependency updates, preset persistence, instance isolation, and rotation fixes.
+- Adapted anamorphic full-source framing to upstream's rotation-aware geometry and public core API. Active anamorphic mode disables automatic zoom and keeps the squeeze border as a guide; the FOV control remains available.
+- Separate stabilization cache entries by squeeze ratio so anamorphic settings cannot affect an instance using another ratio.
+
 ## [2.2.0] - 2026-08-09
 
 ### Added
