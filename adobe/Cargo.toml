@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 gyroflow-plugin-base = { path = "../common" }
-after-effects = "0.4"
-premiere      = "0.4"
+after-effects = { git = "https://github.com/virtualritz/after-effects.git" }
+premiere      = { git = "https://github.com/virtualritz/after-effects.git" }
 #after-effects = { path = "../../after-effects/after-effects" }
 #premiere = { path = "../../after-effects/premiere" }
 log = "0.4"

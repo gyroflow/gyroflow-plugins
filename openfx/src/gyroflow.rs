@@ -204,11 +204,11 @@ impl Execute for GyroflowPlugin {
                 let params = stab.params.read();
                 let fps = params.fps;
                 let src_fps = instance_data.source_clip.get_frame_rate().unwrap_or(fps);
-                let org_ratio = params.size.0 as f64 / params.size.1 as f64;
-                let (has_accurate_timestamps, has_offsets) = {
+                let video_size = params.size;
+                let (has_accurate_timestamps, has_offsets, has_gyro) = {
                     let gyro = stab.gyro.read();
                     let md = gyro.file_metadata.read();
-                    (md.has_accurate_timestamps, !gyro.get_offsets().is_empty())
+                    (md.has_accurate_timestamps, !gyro.get_offsets().is_empty(), !gyro.quaternions.is_empty())
                 };
 
                 let mut speed_stretch = 1.0;
@@ -228,8 +228,15 @@ impl Execute for GyroflowPlugin {
                     speed_stretch = 1.0;
                 }
 
-                if (src_fps - fps).abs() > 0.01 {
-                    instance_data.plugin.set_status(&mut instance_data.params, "Timeline fps mismatch!", "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
+                // The host may tell which source frame it renders (Resolve does, retimed and conformed clips included): the
+                // timestamps are exact then, whatever the frame rates
+                let src_frame = in_args.get_src_frame().ok();
+
+                if !has_gyro {
+                    instance_data.plugin.set_status(&mut instance_data.params, "No gyro data in this file", "This file has no motion data (a transcode or an export of the original, or a camera without gyro). Use the original camera file, or open it in Gyroflow to load the motion data from another file.", false);
+                } else if (src_fps - fps).abs() > 0.01 && src_frame.is_none() {
+                    let status = format!("Timeline fps mismatch! ({fps:.3} clip, {src_fps:.3} timeline)");
+                    instance_data.plugin.set_status(&mut instance_data.params, &status, "Timeline frame rate doesn't match the clip frame rate! Use the plugin in Fusion instead", false);
                 } else if !has_accurate_timestamps && !has_offsets {
                     instance_data.plugin.set_status(&mut instance_data.params, "Not synced. Open in Gyroflow", "Gyro data is not synced with the video, open the video in Gyroflow and add sync points (eg. by doing autosync)", false);
                 } else {
@@ -247,7 +254,7 @@ impl Execute for GyroflowPlugin {
                     let frame = (time / src_fps) * fps * speed_stretch;
                     timestamp_us = (frame.floor() * (1_000_000.0 / fps)).round() as i64;
                 }
-                if let Ok(frame) = in_args.get_src_frame() {
+                if let Some(frame) = src_frame {
                     timestamp_us = (frame as f64 * (1_000_000.0 / fps)).round() as i64;
                 }
 
@@ -280,60 +287,46 @@ impl Execute for GyroflowPlugin {
                 if src_size.2 <= 0 { src_size.2 = src_size.0 * 4 * 4 }; // assuming 32-bit float
                 if out_size.2 <= 0 { out_size.2 = out_size.0 * 4 * 4 }; // assuming 32-bit float
 
-                let src_rect = GyroflowPluginBase::get_center_rect(src_size.0, src_size.1, org_ratio);
-
-                // When the squeeze ratio is active, the
-                // internal output size is the FULL source size and this
-                // out_rect maps the timeline buffer's centered source region
-                // onto it 1:1, so the entire stabilized clip is shown at
-                // natural scale (never zooming in) with the area outside the
-                // source as background. The squeeze border (SqueezeBorder) is
-                // an auto-crop guide only and never frames the output.
-                let squeeze = GyroflowPluginBase::get_squeeze(&instance_data.params);
-                let mut out_rect = if squeeze > 1.001 {
-                    let clip_w = src_rect.2 as f64;
-                    let clip_h = src_rect.3 as f64;
-                    let out_w = out_size.0 as f64;
-                    let h = (clip_h as usize).min(out_size.1);
-                    if out_w > clip_w {
-                        Some((
-                            ((out_w - clip_w) / 2.0).round() as usize,
-                            0,
-                            clip_w.round() as usize,
-                            h,
-                        ))
-                    } else {
-                        None
-                    }
-                } else if instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
-                    let output_ratio = out_size.0 as f64 / out_size.1 as f64;
-                    let mut rect = GyroflowPluginBase::get_center_rect(src_rect.2, src_rect.3, output_ratio);
-                    rect.0 += src_rect.0;
-                    rect.1 += src_rect.1;
-                    Some(rect)
+                // The clip in the input buffer, turned by the input rotation, and where the stabilized image goes in the output
+                // (Vegas draws over the whole output buffer, see below)
+                let is_vegas = _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas");
+                let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).unwrap_or_default();
+                let keep_clip_frame = !is_vegas && instance_data.plugin.keep_clip_frame(&instance_data.params, video_size, input_rotation, (out_size.0, out_size.1));
+                let geometry = GyroflowPluginBase::render_geometry(video_size, input_rotation, (src_size.0, src_size.1), (out_size.0, out_size.1), instance_data.is_fusion_page, keep_clip_frame, true);
+                // The output size has the aspect of what it's drawn into
+                let output_size = if is_vegas {
+                    (instance_data.params.get_f64(Params::OutputWidth).unwrap_or_default() as usize, instance_data.params.get_f64(Params::OutputHeight).unwrap_or_default() as usize)
                 } else {
-                    None
+                    instance_data.plugin.output_size_for(&instance_data.params, video_size, geometry.input_rotation, (out_size.0, out_size.1))
                 };
+                GyroflowPluginBaseInstance::ensure_output_aspect(&stab, output_size);
+                let src_rect = geometry.src_rect;
+                let mut out_rect = geometry.out_rect;
+
                 let out_scale = output_image.get_render_scale()?;
                 if (out_scale.x != 1.0 || out_scale.y != 1.0) && !in_args.get_opengl_enabled().unwrap_or_default() {
                     // log::debug!("out_scale: {:?}", out_scale);
                     let w = (out_size.0 as f64 * out_scale.x as f64).round() as usize;
                     let h = (out_size.1 as f64 * out_scale.y as f64).round() as usize;
                     if out_size.1 > h {
+                        // The image is in the scaled part of the buffer, the rect it's drawn into scales with it
+                        let (rx, ry, rw, rh) = out_rect.unwrap_or((0, 0, out_size.0, out_size.1));
+                        let sx = w as f64 / out_size.0 as f64;
+                        let sy = h as f64 / out_size.1 as f64;
                         out_rect = Some((
-                            0,
-                            out_size.1 - h, // because the coordinates are inverted
-                            w,
-                            h
+                            (rx as f64 * sx).round() as usize,
+                            out_size.1 - h + (ry as f64 * sy).round() as usize, // because the coordinates are inverted
+                            (rw as f64 * sx).round() as usize,
+                            (rh as f64 * sy).round() as usize
                         ));
                     }
                 }
 
-                if _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas") {
+                if is_vegas {
                     out_rect = None;
                 }
 
-                let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).ok().map(|x| x as f32);
+                let input_rotation = Some(geometry.kernel_rotation as f32);
 
                 // log::debug!("src_size: {src_size:?} | src_rect: {src_rect:?}");
                 // log::debug!("out_size: {out_size:?} | out_rect: {out_rect:?}");
@@ -509,12 +502,14 @@ impl Execute for GyroflowPlugin {
                         num_frames:                  0,
                         fps:                         0.0,
                         reload_values_from_project:  false,
+                        keep_adjustments:            false,
                         ever_changed:                false,
                         opencl_disabled:             false,
                         cache_keyframes_every_frame: true,
                         framebuffer_inverted:        true,
                         anamorphic_adjust_size:      true,
-                        always_set_input_rotation:   false,
+                        fixed_output_size:           false,
+                        last_out_size:               (0, 0),
                         has_motion:                  false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
@@ -531,6 +526,8 @@ impl Execute for GyroflowPlugin {
                 let props: EffectInstance = effect.properties()?;
                 if matches!(props.get_resolve_page().as_deref(), Ok("Edit") | Ok("Color")) {
                     instance_data.supports_output_size = false;
+                    // The output buffer is the timeline
+                    instance_data.plugin.fixed_output_size = true;
                 }
                 if matches!(props.get_resolve_page().as_deref(), Ok("Fusion")) {
                     instance_data.is_fusion_page = true;

@@ -1,7 +1,7 @@
 
 use premiere as pr;
 use gyroflow_plugin_base::{ *, gyroflow_core::GyroflowCoreError };
-use super::{ parameters::*, CrossThreadInstance, AdobePluginInstance };
+use super::{ parameters::*, sequence_data, CrossThreadInstance, MediaChange, EffectKey };
 
 #[derive(Default)]
 struct PremiereGPU;
@@ -36,10 +36,24 @@ impl pr::GpuFilter for PremiereGPU {
 
         if let Ok(pr::PropertyData::Binary(bytes)) = filter.property(pr::Property::Effect_FilterOpaqueData) {
             if bytes.len() > 2 {
-                let inst = CrossThreadInstance::unflatten(1, &bytes[2..]).unwrap_or_default();
+                // The effect's own instance (see `effect_instances`): the sequence data copied with the effect is another's,
+                // and may be older than the effect's
+                let (version, saved) = (u16::from_le_bytes([bytes[0], bytes[1]]), &bytes[2..]);
+                let key = match filter.property(pr::Property::Effect_RuntimeInstanceID) {
+                    Ok(pr::PropertyData::UInt32(id)) => Some(EffectKey::Filter(id)),
+                    _ => None
+                };
+                let found = key.and_then(|key| CrossThreadInstance { id: sequence_data::saved_id(saved).unwrap_or_default() }.found_for(key));
+                let (inst, own_instance) = match (found, key) {
+                    (Some(inst), _) => (inst, true),
+                    (None, Some(key)) => (CrossThreadInstance::restore(version, saved).of_effect(key, false, Some((version, saved)), false), true),
+                    (None, None) => (CrossThreadInstance::restore(version, saved), false),
+                };
 
+                let inst_id = inst.id;
                 let inst = inst.get().unwrap();
                 let mut inst = inst.write();
+                inst.sync_copies(inst_id);
 
                 let clip_node = filter.video_segment_suite.acquire_operator_owner_node_id(filter.node_id())?;
                 let media_node = filter.video_segment_suite.acquire_input_node_id(clip_node, 0)?;
@@ -59,12 +73,25 @@ impl pr::GpuFilter for PremiereGPU {
                     }
                 }
 
+                let media_path = match filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
+                    Ok(pr::PropertyData::String(media_path)) => media_path,
+                    _ => String::new()
+                };
+                // The sequence's size and the media's pixel aspect, for a clip new to the effect (see `StoredParams::on_clip`)
+                let anamorphic = || {
+                    match (filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioNum),
+                           filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioDen)) {
+                        (Ok(pr::PropertyData::Int32(num)), Ok(pr::PropertyData::Int32(den))) if den != 0 => ((num as f64 / den as f64) * 100.0).round() != 100.0,
+                        _ => false
+                    }
+                };
+                let sequence_size = (render_params.render_width() as usize, render_params.render_height() as usize);
                 if inst.stored.read().media_file_path.is_empty() {
-                    if let Ok(pr::PropertyData::String(media_path)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_InstanceString) {
+                    if !media_path.is_empty() {
                         let mut stored = inst.stored.write();
                         stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned()));
                         stored.media_file_path = media_path;
-                        stored.sequence_size = (render_params.render_width() as _, render_params.render_height() as _);
+                        stored.on_clip(sequence_size, anamorphic(), true);
                     }
                     if let Ok(pr::PropertyData::Time(media_fps)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamFrameRate) {
                         inst.stored.write().media_fps_ticks = media_fps;
@@ -78,13 +105,25 @@ impl pr::GpuFilter for PremiereGPU {
                     filter.video_segment_suite.iterate_node_properties(media_node.1, |k, v| {
                         log::info!("Property {k:?} = {v:?}");
                     })?;*/
-
-                    if let Ok(pr::PropertyData::Int32(num)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioNum) {
-                        if let Ok(pr::PropertyData::Int32(den)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioDen) {
-                            let pixel_aspect_ratio = num as f64 / den as f64;
-                            if (pixel_aspect_ratio * 100.0).round() != 100.0 {
-                                inst.stored.write().pending_params_bool.insert(Params::DisableStretch, true);
+                } else if own_instance {
+                    // Relinked media, at another path than the one stored when the effect was applied, or the effect copied to
+                    // another clip. Premiere reports the proxy apart, but a proxy in place of the media is still the same clip
+                    let proxy_path = match filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_ProxyInstanceString) {
+                        Ok(pr::PropertyData::String(proxy_path)) => proxy_path,
+                        _ => String::new()
+                    };
+                    let is_proxy = |x: &str| !proxy_path.is_empty() && GyroflowPluginBase::same_file(x, &proxy_path);
+                    if !is_proxy(&media_path) && !is_proxy(&inst.stored.read().media_file_path) {
+                        let params = ParamHandler { inner: ParamsInner::Premiere((filter, render_params.clone())), stored: inst.stored.clone() };
+                        let project = || (params.get_string(Params::ProjectPath).unwrap_or_default(), params.get_string(Params::ProjectData).unwrap_or_default());
+                        let change = inst.follow_media(&media_path, project);
+                        if change != MediaChange::None {
+                            if let Ok(pr::PropertyData::Time(media_fps)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamFrameRate) {
+                                inst.stored.write().media_fps_ticks = media_fps;
                             }
+                        }
+                        if change == MediaChange::OtherClip {
+                            inst.stored.write().on_clip(sequence_size, anamorphic(), false);
                         }
                     }
                 }
@@ -232,7 +271,9 @@ impl pr::GpuFilter for PremiereGPU {
                         _ => panic!("Invalid GPU framework")
                     };
 
-                    let input_rotation = -params.get_f64(Params::InputRotation).unwrap() as f32;
+                    // The clip at its own size, the right way up (see `GyroflowPluginBase::render_geometry`)
+                    let video_size = stab.params.read().size;
+                    let input_rotation = GyroflowPluginBase::render_geometry(video_size, params.get_f64(Params::InputRotation).unwrap_or_default(), (src_size.0, src_size.1), (dest_size.0, dest_size.1), true, false, false).kernel_rotation as f32;
 
                     let mut buffers = Buffers {
                         input:  BufferDescription { size: src_size,  rect: None,           data: buffers.0, rotation: Some(input_rotation), texture_copy: buffers.2 },

@@ -120,14 +120,15 @@ pub fn acquire_background_color() -> ae::drawbot::ColorRgba {
     }
 }
 
+/// The instance's value first: the parameter has the one saved with the project until the next change in the effect
+/// controls, and Premiere's GPU filter can't set parameters, so only the instance knows how loading went
 fn get_str(params: &ae::Parameters<Params>, inst: &mut CrossThreadInstance, key: Params) -> Result<String, ae::Error> {
-    let mut value = params.get(key)?.as_arbitrary()?.value::<ArbString>().map(|x| x.get().to_owned()).unwrap_or_default();
-    if value.is_empty() {
-        if let Ok(v2) = get_str2(inst, key) {
-            value = v2;
+    if let Ok(value) = get_str2(inst, key) {
+        if !value.is_empty() {
+            return Ok(value);
         }
     }
-    Ok(value)
+    Ok(ArbString::read(arb_handle(&*params.get(key)?)?))
 }
 fn get_str2(inst: &mut CrossThreadInstance, key: Params) -> Result<String, ae::Error> {
     let _self = inst.get().unwrap();
