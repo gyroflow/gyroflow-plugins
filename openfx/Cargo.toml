@@ -1,10 +1,10 @@
 [package]
 name = "gyroflow-ofx"
-version = "2.1.1"
+version = "2.2.1"
 authors = ["Adrian <adrian.eddy@gmail.com>", "Ilya Epifanov <elijah.epifanov@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
-description = "Gyroflow OpenFX plugin"
+description = "Gyroflow (Omni) OpenFX plugin"
 build = "build.rs"
 
 [lib]

@@ -34,6 +34,7 @@ define_params!(ParamHandler {
         ProjectData         => project_data:     ParamHandle<String>,
         EmbeddedLensProfile => embedded_lens:    ParamHandle<String>,
         EmbeddedPreset      => embedded_preset:  ParamHandle<String>,
+        SqueezeBorder       => squeeze_border:   ParamHandle<String>,
         ProjectPath         => project_path:     ParamHandle<String>,
         OpenGyroflow        => open_in_gyroflow: ParamHandle<String>,
         ReloadProject       => reload_project:   ParamHandle<String>,
@@ -66,11 +67,13 @@ define_params!(ParamHandler {
         VideoSpeed            => video_speed:              ParamHandle<Double>,
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
+        CustomSqueezeRatio    => custom_squeeze_ratio:     ParamHandle<Double>,
         //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
         Interpolation         => interpolation:            ParamHandle<Int>,
         IntegrationMethod     => integration_method:       ParamHandle<Int>,
+        SqueezeRatio          => squeeze_ratio:            ParamHandle<Int>,
     ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
@@ -451,6 +454,7 @@ impl Execute for GyroflowPlugin {
                         project_data:             param_set.parameter("ProjectData")?,
                         embedded_lens:            param_set.parameter("EmbeddedLensProfile")?,
                         embedded_preset:          param_set.parameter("EmbeddedPreset")?,
+                        squeeze_border:           param_set.parameter("SqueezeBorder")?,
                         project_path:             param_set.parameter("ProjectPath")?,
                         disable_stretch:          param_set.parameter("DisableStretch")?,
                         status:                   param_set.parameter("Status")?,
@@ -479,6 +483,8 @@ impl Execute for GyroflowPlugin {
                         output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
                         interpolation:            param_set.parameter("Interpolation")?,
                         integration_method:       param_set.parameter("IntegrationMethod")?,
+                        squeeze_ratio:            param_set.parameter("SqueezeRatio")?,
+                        custom_squeeze_ratio:     param_set.parameter("CustomSqueezeRatio")?,
 
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,
@@ -715,9 +721,9 @@ impl Execute for GyroflowPlugin {
                 let mut effect_properties: EffectDescriptor = effect.properties()?;
                 effect_properties.set_grouping("Warp")?;
 
-                effect_properties.set_label("Gyroflow")?;
-                effect_properties.set_short_label("Gyroflow")?;
-                effect_properties.set_long_label("Gyroflow")?;
+                effect_properties.set_label("Gyroflow (Omni)")?;
+                effect_properties.set_short_label("Gyroflow (Omni)")?;
+                effect_properties.set_long_label("Gyroflow (Omni)")?;
 
                 effect_properties.set_supported_pixel_depths(&[BitDepth::Byte, BitDepth::Short, BitDepth::Float])?;
                 effect_properties.set_supported_contexts(&[ImageEffectContext::Filter])?;

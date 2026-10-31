@@ -1,9 +1,9 @@
 <p align="center">
   <h1 align="center">
-    <a href="https://github.com/gyroflow/gyroflow-plugins#gh-light-mode-only">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni#gh-light-mode-only">
       <img src="https://raw.githubusercontent.com/gyroflow/gyroflow/master/resources/logo_black.svg" alt="Gyroflow logo" height="100">
     </a>
-    <a href="https://github.com/gyroflow/gyroflow-plugins#gh-dark-mode-only">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni#gh-dark-mode-only">
       <img src="https://raw.githubusercontent.com/gyroflow/gyroflow/master/resources/logo_white.svg" alt="Gyroflow logo" height="100">
     </a>
   </h1>
@@ -13,30 +13,30 @@
     <br/>
     <br/>
     <a href="https://gyroflow.xyz">Homepage</a> •
-    <a href="https://github.com/gyroflow/gyroflow-plugins/releases">Download</a> •
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/releases">Download</a> •
     <a href="https://docs.gyroflow.xyz">Documentation</a> •
     <a href="https://discord.gg/WfxZZXjpke">Discord</a> •
-    <a href="https://github.com/gyroflow/gyroflow-plugins/issues">Report bug</a> •
-    <a href="https://github.com/gyroflow/gyroflow-plugins/issues">Request feature</a>
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/issues">Report bug</a> •
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/issues">Request feature</a>
   </p>
   <p align="center">
-    <a href="https://github.com/gyroflow/gyroflow-plugins/releases">
-      <img src="https://img.shields.io/github/downloads/gyroflow/gyroflow-plugins/total" alt="Downloads">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/releases">
+      <img src="https://img.shields.io/github/downloads/yshui1/gyroflow-plugins-omni/total" alt="Downloads">
     </a>
-    <a href="https://github.com/gyroflow/gyroflow-plugins/graphs/contributors">
-      <img src="https://img.shields.io/github/contributors/gyroflow/gyroflow-plugins?color=dark-green" alt="Contributors">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/graphs/contributors">
+      <img src="https://img.shields.io/github/contributors/yshui1/gyroflow-plugins-omni?color=dark-green" alt="Contributors">
     </a>
-    <a href="https://github.com/gyroflow/gyroflow-plugins/issues/">
-      <img src="https://img.shields.io/github/issues/gyroflow/gyroflow-plugins" alt="Issues">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/issues/">
+      <img src="https://img.shields.io/github/issues/yshui1/gyroflow-plugins-omni" alt="Issues">
     </a>
-    <a href="https://github.com/gyroflow/gyroflow-plugins/blob/master/LICENSE">
-      <img src="https://img.shields.io/github/license/gyroflow/gyroflow-plugins" alt="License">
+    <a href="https://github.com/yshui1/gyroflow-plugins-omni/blob/master/LICENSE">
+      <img src="https://img.shields.io/github/license/yshui1/gyroflow-plugins-omni" alt="License">
     </a>
   </p>
 </p>
 
-# Gyroflow plugin for video editors
-Gyroflow plugin for a video editor allows you to stabilize the video directly inside the video editor, where you work with the original video file, instead of rendering a stabilized video in the app and then importing it to the video editor.
+# Gyroflow (Omni) plugin for video editors
+Gyroflow (Omni) plugin for a video editor allows you to stabilize the video directly inside the video editor, where you work with the original video file, instead of rendering a stabilized video in the app and then importing it to the video editor.
 
 If your camera has official lens profiles and accurate gyro timing (GoPro 8+, Sony, Insta360, DJI), then you should be able to just apply the plugin to your clip. In the Adobe and Final Cut Pro plugin, it should load the gyro data automatically. In Resolve, you should click "Load for current file" or use the "Browse" button to select your video file or the `.gyroflow` project file.
 
@@ -48,18 +48,26 @@ This exported project file is then loaded inside the Gyroflow plugin in the vide
 
 This is especially important when working with RAW files (like BRAW or R3D), where you retain all your RAW controls like ISO, White Balance etc.
 
+Nikon NRAW (`.NEV`) and R3D NE (`.R3D`) metadata can also be loaded directly when the editor can decode the footage.
+The current parser extracts no IMU samples from the tested Nikon ZR files, so gyro stabilization requires synchronized external motion data in a `.gyroflow` project.
+See the [Nikon workflow and validation results](README-OpenFX.md#nikon-nraw-and-r3d-ne).
+
+### Anamorphic squeeze ratio
+
+The OpenFX and Adobe plugins support anamorphic input through the **Input Squeeze ratio** control in the plugin parameters. Choose a preset ratio or select **Custom** and enter a value from `1.0x` to `2.0x`. The plugins keep the source image unchanged and publish the calculated centered auto-crop region through the hidden `SqueezeBorder` parameter for host integrations that can consume it; the border is a guide and does not itself crop or de-squeeze the rendered image.
+
 ---
 
-This repository contains the source code of [Gyroflow](https://github.com/gyroflow/gyroflow) video editor plugins. This includes OpenFX, Adobe and frei0r.<br>
+This repository is **gyroflow-plugins-omni**, an Omni fork of the [upstream Gyroflow video editor plugins](https://github.com/gyroflow/gyroflow-plugins). The effect appears as **Gyroflow (Omni)** in video editors. It contains the source code of [Gyroflow](https://github.com/gyroflow/gyroflow) video editor plugins. This includes OpenFX, Adobe and frei0r.<br>
 Final Cut Pro plugin is hosted in an [external repository](https://github.com/latenitefilms/GyroflowToolbox/).
 
 ## Supported applications:
 | Applications | Plugin type | Download | Nightly |
 | ------------- | ------------- | ------------- | ------------- |
-| <ul><li>[DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve)</li><li>[Assimilate SCRATCH](https://www.assimilateinc.com/products/)</li><li>[The Foundry Nuke](https://www.foundry.com/products/nuke-family/nuke)</li><li>[MAGIX Vegas](https://www.vegascreativesoftware.com/us/vegas-pro/)</li></ul> | **OpenFX** | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) | [Windows](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-OpenFX-windows.zip)<br>[macOS](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-OpenFX-macos.zip)<br>[Linux](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-OpenFX-linux.zip) |
-| <ul><li>[Adobe After Effects](https://www.adobe.com/products/aftereffects.html)</li><li>[Adobe Premiere](https://www.adobe.com/products/premiere.html)</li></ul> | **Adobe**  | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) | [Windows](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-Adobe-windows.zip)<br>[macOS](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-Adobe-macos.zip) |
+| <ul><li>[DaVinci Resolve](https://www.blackmagicdesign.com/products/davinciresolve)</li><li>[Assimilate SCRATCH](https://www.assimilateinc.com/products/)</li><li>[The Foundry Nuke](https://www.foundry.com/products/nuke-family/nuke)</li><li>[MAGIX Vegas](https://www.vegascreativesoftware.com/us/vegas-pro/)</li></ul> | **OpenFX** | [Download](https://github.com/yshui1/gyroflow-plugins-omni/releases) | [Windows](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-OpenFX-windows.zip)<br>[macOS](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-OpenFX-macos.zip)<br>[Linux](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-OpenFX-linux.zip) |
+| <ul><li>[Adobe After Effects](https://www.adobe.com/products/aftereffects.html)</li><li>[Adobe Premiere](https://www.adobe.com/products/premiere.html)</li></ul> | **Adobe**  | [Download](https://github.com/yshui1/gyroflow-plugins-omni/releases) | [Windows](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-Adobe-windows.zip)<br>[macOS](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-Adobe-macos.zip) |
 | <ul><li>[Final Cut Pro](https://www.apple.com/final-cut-pro/)</li></ul> | **FxPlug4**  | [Download](https://gyroflowtoolbox.io/) | --- |
-| <ul><li>[Kdenlive](https://www.kdenlive.org/)</li><li>[Shotcut](https://www.shotcut.org/)</li><li>[FFmpeg](https://ffmpeg.org)</li><li>[MLT](https://www.mltframework.org/)</li><li>[LiquidSoap](https://www.liquidsoap.info/)</li><li>[PureData](https://puredata.info/)</li><li>[Open Movie Editor](http://www.openmovieeditor.org/)</li><li>[Gephex](https://gephex.org/)</li><li>[LiVES](http://lives.sf.net)</li><li>[FreeJ](https://freej.dyne.org)</li><li>[VeeJay](http://veejayhq.net)</li><li>[Flowblade](https://jliljebl.github.io/flowblade/)</li></ul> | **frei0r**  | [Download](https://github.com/gyroflow/gyroflow-plugins/releases) | [Windows](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-frei0r-windows.zip)<br>[macOS](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-frei0r-macos.zip)<br>[Linux](https://nightly.link/gyroflow/gyroflow-plugins/workflows/release/main/Gyroflow-frei0r-linux.zip) |
+| <ul><li>[Kdenlive](https://www.kdenlive.org/)</li><li>[Shotcut](https://www.shotcut.org/)</li><li>[FFmpeg](https://ffmpeg.org)</li><li>[MLT](https://www.mltframework.org/)</li><li>[LiquidSoap](https://www.liquidsoap.info/)</li><li>[PureData](https://puredata.info/)</li><li>[Open Movie Editor](http://www.openmovieeditor.org/)</li><li>[Gephex](https://gephex.org/)</li><li>[LiVES](http://lives.sf.net)</li><li>[FreeJ](https://freej.dyne.org)</li><li>[VeeJay](http://veejayhq.net)</li><li>[Flowblade](https://jliljebl.github.io/flowblade/)</li></ul> | **frei0r**  | [Download](https://github.com/yshui1/gyroflow-plugins-omni/releases) | [Windows](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-frei0r-windows.zip)<br>[macOS](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-frei0r-macos.zip)<br>[Linux](https://nightly.link/yshui1/gyroflow-plugins-omni/workflows/release/main/Gyroflow-frei0r-linux.zip) |
 
 ---
 
@@ -74,4 +82,4 @@ For manual installation steps and more details, refer to [the documentation](htt
 
 ## License
 
-Distributed under the GPLv3 License with App Store Exception. See [LICENSE](https://github.com/gyroflow/gyroflow-plugins/blob/main/LICENSE) for more information.
+Distributed under the GPLv3 License with App Store Exception. See [LICENSE](https://github.com/yshui1/gyroflow-plugins-omni/blob/main/LICENSE) for more information.

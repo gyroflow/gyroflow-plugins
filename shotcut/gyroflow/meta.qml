@@ -3,7 +3,7 @@ import org.shotcut.qml
 
 Metadata {
     type: Metadata.Filter
-    name: qsTr("Gyroflow")
+    name: qsTr("Gyroflow (Omni)")
     keywords: qsTr("stabilization smooth shake action camera gyro") + " gyroflow #rgba"
     mlt_service: "frei0r.gyroflow"
     objectName: "gyroflow"
