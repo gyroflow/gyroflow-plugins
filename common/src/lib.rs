@@ -438,7 +438,7 @@ impl GyroflowPluginBase {
             ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", opened: true, parameters: vec![
                 ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 1.0,    max: 300.0, default: 50.0 },
                 ParameterType::Slider   { id: "ZoomLimit",              label: "Zoom limit",           hint: "Zoom limit",                   min: 51.0,   max: 300.0, default: 130.0 },
-                ParameterType::Slider   { id: "LensCorrectionStrength", label: "Lens correction",      hint: "Lens correction",              min: 0.0,    max: 100.0, default: 100.0 },
+                ParameterType::Slider   { id: "LensCorrectionStrength", label: "Lens correction",      hint: "Lens correction",              min: 0.0,    max: 100.0, default: 0.0 },
                 ParameterType::Slider   { id: "HorizonLockAmount",      label: "Horizon lock",         hint: "Horizon lock amount",          min: 0.0,    max: 100.0, default: 0.0 },
                 ParameterType::Slider   { id: "HorizonLockRoll",        label: "Horizon roll",         hint: "Horizon lock roll adjustment", min: -100.0, max: 100.0, default: 0.0 },
                 //ParameterType::Slider   { id: "PositionX",              label: "Position offset X",    hint: "Position offset X",            min: -100.0, max: 100.0, default: 0.0 },
@@ -1298,7 +1298,10 @@ impl GyroflowPluginBaseInstance {
                     params.set_f64(Params::Fov,                    gf_params.fov)?;
                     params.set_f64(Params::Smoothness,             smoothness * 100.0)?;
                     params.set_f64(Params::ZoomLimit,              gf_params.max_zoom.unwrap_or(0.0))?;
-                    params.set_f64(Params::LensCorrectionStrength, (gf_params.lens_correction_amount * 100.0).min(100.0))?;
+                    params.clear_keyframes(Params::LensCorrectionStrength)?;
+                    params.set_f64(Params::LensCorrectionStrength, 0.0)?;
+                    // Imported correction curves must not override the zero default.
+                    stab.keyframes.write().clear_type(&KeyframeType::LensCorrectionStrength);
                     params.set_f64(Params::HorizonLockAmount,      if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonlockpercent } else { 0.0 })?;
                     params.set_f64(Params::HorizonLockRoll,        if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonroll } else { 0.0 })?;
                     params.set_f64(Params::VideoSpeed,             gf_params.video_speed * 100.0)?;

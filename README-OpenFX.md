@@ -29,7 +29,11 @@ Create the folder if it doesn't exist yet.
 
 ## For more detailed instructions, see the [docs](https://docs.gyroflow.xyz/app/video-editor-plugins/davinci-resolve-openfx#installation)
 
+The bundle binary must be named `GyroflowOmni.ofx` (for example, `Contents/Win64/GyroflowOmni.ofx` on Windows). Omni uses the distinct plugin ID `xyz.gyroflow.omni`, so it can coexist with the original Gyroflow plugin. Existing instances of the original plugin remain attached to it; add **Gyroflow (Omni)** as a new effect to use this version.
+
 # Usage
+
+Lens correction defaults to **0** for new instances and fresh project/preset loads, including projects with lens-correction keyframes. You can adjust or keyframe it afterward; saved effects retain their settings.
 
 ## Zooming
 

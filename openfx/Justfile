@@ -5,7 +5,7 @@ TargetDir := env_var_or_default("CARGO_TARGET_DIR", "target")
 [windows]
 release:
     cargo build --release
-    Copy-Item -Path "{{TargetDir}}\release\gyroflow_ofx.dll" -Destination "C:\Program Files\Common Files\OFX\Plugins\GyroflowOmni.ofx.bundle\Contents\Win64\Gyroflow.ofx" -Force
+    Copy-Item -Path "{{TargetDir}}\release\gyroflow_ofx.dll" -Destination "C:\Program Files\Common Files\OFX\Plugins\GyroflowOmni.ofx.bundle\Contents\Win64\GyroflowOmni.ofx" -Force
 
 [windows]
 deploy:
@@ -16,7 +16,7 @@ deploy:
     cd "{{TargetDir}}"
     Remove-Item -Recurse -Force gyroflow-ofx-windows, Gyroflow-OpenFX-windows.zip -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path "gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/Win64" -Force
-    cp "deploy/gyroflow_ofx.dll" "gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/Win64/Gyroflow.ofx"
+    cp "deploy/gyroflow_ofx.dll" "gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/Win64/GyroflowOmni.ofx"
     cp "{{justfile_directory()}}/res/Info.plist" "gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/"
     cp "{{justfile_directory()}}/../LICENSE" "gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/"
     cd gyroflow-ofx-windows ; 7z a ../Gyroflow-OpenFX-windows.zip .
@@ -60,7 +60,7 @@ deploy:
     /usr/libexec/PlistBuddy -c "add CFBundleShortVersionString string $version" gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/Info.plist
 
     codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib
-    mv gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.ofx
+    mv gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/GyroflowOmni.ofx
 
     codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/GyroflowOmni.ofx.bundle
     codesign -vvvv --deep --verify gyroflow-ofx-macos/GyroflowOmni.ofx.bundle
@@ -84,7 +84,7 @@ deploy:
     cd "{{TargetDir}}"
     rm -Rf gyroflow-ofx-linux Gyroflow-OpenFX-linux.zip
     mkdir -p gyroflow-ofx-linux/GyroflowOmni.ofx.bundle/Contents/Linux-x86-64
-    cp deploy/libgyroflow_ofx.so gyroflow-ofx-linux/GyroflowOmni.ofx.bundle/Contents/Linux-x86-64/Gyroflow.ofx
+    cp deploy/libgyroflow_ofx.so gyroflow-ofx-linux/GyroflowOmni.ofx.bundle/Contents/Linux-x86-64/GyroflowOmni.ofx
     cp "{{justfile_directory()}}/res/Info.plist" gyroflow-ofx-linux/GyroflowOmni.ofx.bundle/Contents/
     cp "{{justfile_directory()}}/../LICENSE"     gyroflow-ofx-linux/GyroflowOmni.ofx.bundle/Contents/
     cd gyroflow-ofx-linux && zip -r ../Gyroflow-OpenFX-linux.zip .

@@ -8,7 +8,7 @@ use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
 
 plugin_module!(
-    "xyz.gyroflow",
+    "xyz.gyroflow.omni",
     ApiVersion(1),
     PluginVersion(1, 2),
     GyroflowPlugin::default

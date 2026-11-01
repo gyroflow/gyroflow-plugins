@@ -2,8 +2,10 @@
 
 ## Unreleased
 
+- Lens correction now defaults to 0 for new instances and fresh project/preset loads, ignoring imported correction values and curves. Saved effect settings and subsequent user edits remain available.
+
 - Added a Zooming selector before Integration method with Static zooming and Dynamic zooming (4-second smoothing). Static is the default; imported No zooming settings map to Static. Both modes work with anamorphic framing and participate in recalculation and instance isolation.
-- Renamed the effect display name to `Gyroflow (Omni)` in OpenFX, Adobe, frei0r, and Shotcut, and the repository to `gyroflow-plugins-omni`. The OpenFX bundle folder is now `GyroflowOmni.ofx.bundle` on all platforms; internal plugin identifiers and the `Gyroflow.ofx` binary name remain unchanged.
+- Renamed the effect display name to `Gyroflow (Omni)` in OpenFX, Adobe, frei0r, and Shotcut, and the repository to `gyroflow-plugins-omni`. The OpenFX bundle folder is now `GyroflowOmni.ofx.bundle` on all platforms; the binary is named `GyroflowOmni.ofx` to match the bundle, as required for host discovery. Omni uses the distinct OpenFX identifier `xyz.gyroflow.omni` so it can coexist with the original Gyroflow plugin. Existing effects using `xyz.gyroflow` continue to refer to the original plugin.
 - Added Nikon NRAW (`.NEV`) and Nikon R3D NE (`.R3D`) container metadata loading, including NRAW files renamed to `.R3D`, across the shared plugin loader and frei0r.
 - Added `.NEV` to the file picker and Nikon metadata handling to footage matching and project rotation lookup. Existing BRAW timing uses the core path unchanged.
 - Validated all three supplied Nikon ZR samples: 6060x3410 at 24000/1001 fps, 147/147/15 frames. The current parser extracts no IMU samples, so direct loading alone cannot provide gyro stabilization; RAW image decoding remains the editor's responsibility.
