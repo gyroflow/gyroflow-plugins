@@ -18,18 +18,27 @@ Grab the archive for your OS from the [releases page](https://github.com/yshui1/
 
 ## MacOS
 
-Copy the `Gyroflow.ofx.bundle` from the archive into the `/Library/OFX/Plugins` directory.
+Copy the `GyroflowOmni.ofx.bundle` from the archive into the `/Library/OFX/Plugins` directory.
 Create the directory if it doesn't exist yet.
-Then in Resolve, make sure to go to Preferences -> Video plugins and enable Gyroflow.ofx.bundle.
+Then in Resolve, make sure to go to Preferences -> Video plugins and enable GyroflowOmni.ofx.bundle.
 
 ## Windows
 
-Copy the `Gyroflow.ofx.bundle` from the archive into the `C:\Program Files\Common Files\OFX\Plugins` folder.
+Copy the `GyroflowOmni.ofx.bundle` from the archive into the `C:\Program Files\Common Files\OFX\Plugins` folder.
 Create the folder if it doesn't exist yet.
 
 ## For more detailed instructions, see the [docs](https://docs.gyroflow.xyz/app/video-editor-plugins/davinci-resolve-openfx#installation)
 
 # Usage
+
+## Zooming
+
+**Zooming**, immediately before **Integration method** in **Adjust parameters**, offers
+**Static zooming** (one crop for the clip) and **Dynamic zooming** (a crop that adapts
+with a 4-second smoothing window). New instances default to Static zooming.
+Loading a project or preset selects its zoom mode; No zooming maps to Static zooming.
+Both choices also work with anamorphic squeeze ratios. The choice is saved with the
+effect, and changing it recalculates stabilization without affecting copied instances.
 
 ## Anamorphic squeeze ratio
 

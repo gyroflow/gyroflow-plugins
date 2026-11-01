@@ -71,6 +71,7 @@ pub enum Params {
     Interpolation,
     FusionStartFrame,
     SaveDefault,
+    Zooming,
 }
 
 /// Fixed anamorphic squeeze ratio options (index 10 = custom slider).
@@ -449,10 +450,11 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "Fov",                    label: "FOV",                  hint: "FOV",                          min: 0.1,    max: 3.0,   default: 1.0 },
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
+                ParameterType::Select   { id: "Zooming",                label: "Zooming",              hint: "Static zooming uses one crop for the clip. Dynamic zooming adapts the crop with a 4-second smoothing window.", options: vec!["Static zooming", "Dynamic zooming"], default: "Static zooming" },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
                 ParameterType::Select   { id: "SqueezeRatio",       label: "Input Squeeze ratio",       hint: "Anamorphic squeeze ratio of the lens. When greater than 1x it only publishes the auto-crop border guide (regionW = clipH * timelineAspect / squeeze, full height, centered) to the hidden SqueezeBorder parameter; it never changes the rendered output.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
                 ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom squeeze ratio", hint: "Custom squeeze ratio (1.0x - 2.0x), used when Squeeze ratio is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
-                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
+                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zooming, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -687,6 +689,7 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::Rotation, loaded);
         let _ = params.set_enabled(Params::VideoSpeed, loaded);
         let _ = params.set_enabled(Params::DisableStretch, loaded);
+        let _ = params.set_enabled(Params::Zooming, loaded);
         let _ = params.set_enabled(Params::IntegrationMethod, loaded);
         // Squeeze framing controls work regardless of gyro loading; only the
         // custom value is gated on the "Custom" selection.
@@ -940,6 +943,11 @@ impl GyroflowPluginBaseInstance {
         let managers = self.managers.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
         for v in &managers {
             match param {
+                Params::Zooming => {
+                    v.set_adaptive_zoom(Self::zooming_window(params));
+                    v.invalidate_blocking_smoothing();
+                    v.invalidate_blocking_zooming();
+                }
                 Params::IntegrationMethod => {
                     if let Ok(im) = params.get_i32(Params::IntegrationMethod) {
                         let mut gyro = v.gyro.write();
@@ -987,10 +995,14 @@ impl GyroflowPluginBaseInstance {
         matches!(param,
             Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
             Params::HorizonLockAmount | Params::HorizonLockRoll | Params::AdditionalPitch | Params::AdditionalYaw |
-            Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::IntegrationMethod |
+            Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::Zooming | Params::IntegrationMethod |
             Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes |
             Params::OutputWidth | Params::OutputHeight | Params::OutputSizeSwap | Params::OutputSizeToTimeline |
             Params::ToggleOverview | Params::DontDrawOutside | Params::Interpolation)
+    }
+
+    fn zooming_window(params: &dyn GyroflowPluginParams) -> f64 {
+        if params.get_i32(Params::Zooming).unwrap_or_default() == 1 { 4.0 } else { -1.0 }
     }
 
     fn interpolation(params: &dyn GyroflowPluginParams) -> gyroflow_core::stabilization::Interpolation {
@@ -1013,7 +1025,7 @@ impl GyroflowPluginBaseInstance {
     }
 
     /// Sets up `stab` for the instance with what it applies of its parameters: the overview, the output size and the
-    /// rotation, the keyframable parameters and the integration method. For a stabilization loaded or forked for it, or
+    /// rotation, zooming, the keyframable parameters and the integration method. For a stabilization loaded or forked for it, or
     /// one of its own it set up for values it doesn't have anymore (restored from before an undo or a revert).
     /// `recompute` computes the stabilization right away, otherwise its first render does
     fn configure(&mut self, params: &mut dyn GyroflowPluginParams, stab: &StabilizationManager, out_size: (usize, usize), recompute: bool) -> PluginResult<()> {
@@ -1026,9 +1038,7 @@ impl GyroflowPluginBaseInstance {
         // Use the public core API: upstream has no plugin-specific squeeze_ratio field.
         stab.set_input_horizontal_stretch(1.0);
         stab.set_input_vertical_stretch(1.0);
-        if GyroflowPluginBase::get_squeeze(params) > 1.001 {
-            stab.set_adaptive_zoom(0.0);
-        }
+        stab.set_adaptive_zoom(Self::zooming_window(params));
         stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);
         stab.params.write().framebuffer_inverted = self.framebuffer_inverted;
 
@@ -1087,11 +1097,12 @@ impl GyroflowPluginBaseInstance {
         let aspect = |s: (usize, usize)| s.0 as f64 / s.1.max(1) as f64;
         let output_size = size.0.max(size.1) < 320 || size.0 == 0 || size.1 == 0 || (aspect(gf_params.output_size) / aspect(size) - 1.0).abs() <= 0.01;
         let overview = gf_params.fov_overview == params.get_bool(Params::ToggleOverview).unwrap_or_default();
+        let zooming = gf_params.adaptive_zoom_window == Self::zooming_window(params);
         drop(gf_params);
         let integration = params.get_i32(Params::IntegrationMethod).map_or(true, |x| stab.gyro.read().integration_method == x as usize);
         let interpolation = stab.stabilization.read().interpolation as u32 == Self::interpolation(params) as u32;
 
-        keyframes && output_size && overview && integration && interpolation
+        keyframes && output_size && overview && zooming && integration && interpolation
     }
 
     /// Gives the instance a stabilization of its own, under a new instance id, to change from now on. It shared it with
@@ -1296,6 +1307,8 @@ impl GyroflowPluginBaseInstance {
                     params.set_f64(Params::AdditionalYaw,          gf_params.additional_rotation.0)?;
                     params.set_f64(Params::AdditionalPitch,        gf_params.additional_rotation.1)?;
                     params.set_i32(Params::IntegrationMethod,      stab.gyro.read().integration_method as i32)?;
+                    // Projects without automatic zoom use the supported static mode.
+                    params.set_i32(Params::Zooming,                if gf_params.adaptive_zoom_window > 0.0001 { 1 } else { 0 })?;
 
                     params.set_i32(Params::Interpolation, match stab.stabilization.read().interpolation {
                         gyroflow_core::stabilization::Interpolation::Lanczos4      => 0,
@@ -1529,6 +1542,7 @@ impl GyroflowPluginBaseInstance {
                 let mut stabilization = serde_json::json!({
                     "fov":                    params.get_f64(Params::Fov)?,
                     "max_zoom":               params.get_f64(Params::ZoomLimit)?,
+                    "adaptive_zoom_window":   Self::zooming_window(params),
                     "lens_correction_amount": (params.get_f64(Params::LensCorrectionStrength)? / 100.0).clamp(0.0, 1.0),
                     "smoothing_params":       [{ "name": "smoothness", "value": params.get_f64(Params::Smoothness)? / 100.0 }],
                     "horizon_lock_amount":    params.get_f64(Params::HorizonLockAmount)?,
@@ -1659,7 +1673,7 @@ impl GyroflowPluginBaseInstance {
                 Params::HorizonLockAmount | Params::HorizonLockRoll |
                 //Params::PositionX | Params::PositionY |
                 Params::AdditionalPitch | Params::AdditionalYaw |
-                Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::IntegrationMethod |
+                Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::Zooming | Params::IntegrationMethod |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
                     params.set_string(Params::Status, "Calculating...")?;
@@ -1970,7 +1984,7 @@ mod tests {
         params.f64s.insert(Params::InputRotation, 90.0);
         params.f64s.insert(Params::Rotation, 90.0);
         inst.configure(&mut params, &stab, (1920, 1080), false).unwrap();
-        assert_eq!(stab.params.read().adaptive_zoom_window, 0.0);
+        assert_eq!(stab.params.read().adaptive_zoom_window, -1.0);
         assert_eq!(stab.params.read().output_size, (2160, 3840));
 
         let anamorphic_key = GyroflowPluginBaseInstance::stab_key(&params).unwrap();
@@ -2000,9 +2014,10 @@ mod tests {
 
     #[test]
     fn a_copy_set_up_for_other_values_forks_the_stabilization() {
-        let changes: [fn(&mut TestParams); 2] = [
+        let changes: [fn(&mut TestParams); 3] = [
             |p| { p.bools.insert(Params::ToggleOverview, true); },
             |p| { p.f64s.insert(Params::Smoothness, 80.0); },
+            |p| { p.i32s.insert(Params::Zooming, 1); },
         ];
         for change in changes {
             let cache = cache();
@@ -2017,10 +2032,31 @@ mod tests {
             assert_ne!(id(&params_b), id(&params_a));
             assert!(b.ever_changed && reads_from(&stab, &b));
             assert_eq!(stab.params.read().fov_overview, params_b.get_bool(Params::ToggleOverview).unwrap());
+            assert_eq!(stab.params.read().adaptive_zoom_window, GyroflowPluginBaseInstance::zooming_window(&params_b));
+            assert_eq!(shared.params.read().adaptive_zoom_window, -1.0);
             // The shared one as it was
             assert!(!shared.params.read().fov_overview && reads_from(&shared, &a));
             assert!(cache.lock().contains(&GyroflowPluginBaseInstance::stab_key(&params_a).unwrap()));
         }
+    }
+
+    #[test]
+    fn zooming_edits_and_restore_work_with_anamorphic_framing() {
+        let cache = cache();
+        let mut params = params();
+        params.i32s.insert(Params::SqueezeRatio, 5);
+        let (mut inst, stab) = loaded(&mut params, &cache, true);
+        assert_eq!(stab.params.read().adaptive_zoom_window, -1.0);
+
+        params.i32s.insert(Params::Zooming, 1);
+        inst.param_changed(&mut params, &cache, Params::Zooming, true).unwrap();
+        assert_eq!(stab.params.read().adaptive_zoom_window, 4.0);
+
+        // A host restoring an earlier value must reconfigure the cached manager.
+        params.i32s.insert(Params::Zooming, 0);
+        let mut restored = GyroflowPluginBaseInstance::default();
+        let stab = restored.stab_manager(&mut params, &cache, (1920, 1080), false).unwrap();
+        assert_eq!(stab.params.read().adaptive_zoom_window, -1.0);
     }
 
     #[test]

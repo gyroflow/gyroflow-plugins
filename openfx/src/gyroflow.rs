@@ -71,6 +71,7 @@ define_params!(ParamHandler {
         //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
+        Zooming               => zooming:                  ParamHandle<Int>,
         Interpolation         => interpolation:            ParamHandle<Int>,
         IntegrationMethod     => integration_method:       ParamHandle<Int>,
         SqueezeRatio          => squeeze_ratio:            ParamHandle<Int>,
@@ -483,6 +484,7 @@ impl Execute for GyroflowPlugin {
                         output_size_fit:          param_set.parameter("OutputSizeToTimeline")?,
                         interpolation:            param_set.parameter("Interpolation")?,
                         integration_method:       param_set.parameter("IntegrationMethod")?,
+                        zooming:                  param_set.parameter("Zooming")?,
                         squeeze_ratio:            param_set.parameter("SqueezeRatio")?,
                         custom_squeeze_ratio:     param_set.parameter("CustomSqueezeRatio")?,
 
