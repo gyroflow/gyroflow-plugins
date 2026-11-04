@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed implicit anamorphic scaling on 90/270-degree footage after disabling stretch: the virtual output aspect now compensates the effective recorded-pixel focal ratio, while the host source/output rectangles retain their squeezed proportions. This shares the corrected geometry with rendering and zoom calculation. Added pixel-proportion regressions for both anamorphic axes at all quarter turns, with lens correction at 0% and 100%, alongside border-sampling tests with Disable stretch both on and off.
+
+- Input vertical stretch now matches the horizontal preset dropdown and optional Custom slider. Effects saved with the slider-only control migrate their value on load, and selecting a preset preserves the custom value. OFX no longer enlarges the recorded source dimensions when Disable Gyroflow's stretch is checked: buffer fitting and zoom bounds use the actual recorded frame, avoiding sampling Resolve's side bars as image content. Added load-path and CPU pixel regressions for vertical/horizontal profiles and rotated buffers.
+
+- Added Input vertical stretch (1x-2x), initialized from the lens profile's `input_vertical_stretch`. Either stretch axis enables anamorphic framing. The source-pixel crop guide now accounts for both axes and quarter-turn video rotation, fitting both width and height to the timeline aspect. Vertical edits are saved with the effect and separated in the stabilization cache.
+
 - Renamed Input Squeeze ratio to Input horizontal stretch. Fresh lens/project loads initialize it from the lens profile's `input_horizontal_stretch`, selecting a preset or Custom within the supported 1x-2x range. Manual edits and saved effect values remain available; parameter IDs and crop-guide rendering behavior are unchanged.
 
 - Lens correction now defaults to 0 for new instances and fresh project/preset loads, ignoring imported correction values and curves. Saved effect settings and subsequent user edits remain available.

@@ -72,6 +72,9 @@ pub enum Params {
     FusionStartFrame,
     SaveDefault,
     Zooming,
+    InputVerticalStretch,
+    VerticalSqueezeRatio,
+    VerticalStretchControlVersion,
 }
 
 /// Fixed anamorphic squeeze ratio options (index 10 = custom slider).
@@ -294,6 +297,44 @@ impl GyroflowPluginBase {
         Ok(())
     }
 
+    fn valid_vertical_stretch(stretch: f64) -> f64 {
+        if stretch.is_finite() && stretch > 0.0 { stretch.clamp(1.0, 2.0) } else { 1.0 }
+    }
+
+    pub fn get_vertical_stretch(params: &dyn GyroflowPluginParams) -> f64 {
+        // Older effects contain only the scalar. Until their first loaded-state
+        // refresh migrates it, keep using that value rather than the new 1x default.
+        if params.get_string(Params::VerticalStretchControlVersion).unwrap_or_default() == "1" {
+            if let Ok(index) = params.get_i32(Params::VerticalSqueezeRatio) {
+                if let Some(stretch) = ANAMORPHIC_SQUEEZE_OPTIONS.get(index as usize) {
+                    return *stretch;
+                }
+            }
+        }
+        Self::valid_vertical_stretch(params.get_f64(Params::InputVerticalStretch).unwrap_or(1.0))
+    }
+
+    fn set_input_vertical_stretch(params: &mut dyn GyroflowPluginParams, stretch: f64) -> PluginResult<()> {
+        let stretch = Self::valid_vertical_stretch(stretch);
+        let index = ANAMORPHIC_SQUEEZE_OPTIONS.iter().position(|v| (v - stretch).abs() < 0.000001);
+        if index.is_none() {
+            params.set_f64(Params::InputVerticalStretch, stretch)?;
+        }
+        params.set_i32(Params::VerticalSqueezeRatio, index.unwrap_or(10) as i32)?;
+        params.set_string(Params::VerticalStretchControlVersion, "1")?;
+        params.set_enabled(Params::InputVerticalStretch, index.is_none())
+    }
+
+    /// The custom scalar keeps its original ID. Migrate slider-only 2.2.4
+    /// effects once, after the host has restored their saved parameters.
+    fn sync_vertical_stretch_control(params: &mut dyn GyroflowPluginParams) -> PluginResult<()> {
+        if params.get_string(Params::VerticalStretchControlVersion).unwrap_or_default() != "1" {
+            let stretch = Self::get_vertical_stretch(params);
+            Self::set_input_vertical_stretch(params, stretch)?;
+        }
+        params.set_enabled(Params::InputVerticalStretch, params.get_i32(Params::VerticalSqueezeRatio).unwrap_or(0) == 10)
+    }
+
     /// Whether a rotation in degrees is a quarter turn either way, ie. swaps the width and height of the frame
     pub fn is_quarter_turn(rotation: f64) -> bool {
         (rotation.rem_euclid(180.0) - 90.0).abs() < 1.0
@@ -431,7 +472,7 @@ impl GyroflowPluginBase {
         }
     }
 
-    pub fn get_param_definitions() -> [ParameterType; 14] {
+    pub fn get_param_definitions() -> [ParameterType; 15] {
         [
             ParameterType::HiddenString { id: "InstanceId" },
             ParameterType::HiddenString { id: "ProjectPath" },
@@ -439,6 +480,7 @@ impl GyroflowPluginBase {
             ParameterType::HiddenString { id: "EmbeddedLensProfile" },
             ParameterType::HiddenString { id: "EmbeddedPreset" },
             ParameterType::HiddenString { id: "SqueezeBorder" },
+            ParameterType::HiddenString { id: "VerticalStretchControlVersion" },
             ParameterType::Group { id: "ProjectGroup", label: "Gyroflow project", opened: true, parameters: vec![
                 ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
@@ -465,8 +507,10 @@ impl GyroflowPluginBase {
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "Zooming",                label: "Zooming",              hint: "Static zooming uses one crop for the clip. Dynamic zooming adapts the crop with a 4-second smoothing window.", options: vec!["Static zooming", "Dynamic zooming"], default: "Static zooming" },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
-                ParameterType::Select   { id: "SqueezeRatio",       label: "Input horizontal stretch",       hint: "Initialized from input_horizontal_stretch when loading a lens profile; can be adjusted manually. When greater than 1x it only publishes the auto-crop border guide (regionW = clipH * timelineAspect / stretch, full height, centered) to the hidden SqueezeBorder parameter; it never changes the rendered output.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
+                ParameterType::Select   { id: "SqueezeRatio",       label: "Input horizontal stretch",       hint: "Initialized from input_horizontal_stretch in the lens profile. Describes the recorded sensor's horizontal axis before video rotation. Used with vertical stretch for anamorphic framing and the crop guide; does not de-squeeze the image.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
                 ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom horizontal stretch", hint: "Custom horizontal stretch (1.0x - 2.0x), used when Input horizontal stretch is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
+                ParameterType::Select   { id: "VerticalSqueezeRatio", label: "Input vertical stretch", hint: "Initialized from input_vertical_stretch in the lens profile. Describes the recorded sensor's vertical axis before video rotation. Used for anamorphic framing and the crop guide; does not de-squeeze the image.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
+                ParameterType::Slider   { id: "InputVerticalStretch", label: "Custom vertical stretch", hint: "Custom vertical stretch (1.0x - 2.0x), used when Input vertical stretch is set to Custom", min: 1.0, max: 2.0, default: 1.0 },
                 ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zooming, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
@@ -634,6 +678,9 @@ pub struct GyroflowPluginBaseInstance {
     pub fixed_output_size: bool,
     /// The output buffer's size at the last render, to fit the output size to again when parameters change
     pub last_out_size: (usize, usize),
+    /// Effective fx/fy in recorded pixels. A quarter-turn ray projection must
+    /// compensate this anisotropy before fitting back into the host's raw frame.
+    pub pixel_focal_ratio: f64,
 
     pub opencl_disabled: bool,
 }
@@ -656,6 +703,7 @@ impl Clone for GyroflowPluginBaseInstance {
             anamorphic_adjust_size:         self.anamorphic_adjust_size,
             fixed_output_size:              self.fixed_output_size,
             last_out_size:                  self.last_out_size,
+            pixel_focal_ratio:              self.pixel_focal_ratio,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -679,6 +727,7 @@ impl Default for GyroflowPluginBaseInstance {
             anamorphic_adjust_size:         true,
             fixed_output_size:              false,
             last_out_size:                  (0, 0),
+            pixel_focal_ratio:              1.0,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -708,6 +757,11 @@ impl GyroflowPluginBaseInstance {
         // custom value is gated on the "Custom" selection.
         let _ = params.set_enabled(Params::CustomSqueezeRatio,
                                    params.get_i32(Params::SqueezeRatio).unwrap_or(0) == 10);
+        if loaded {
+            let _ = GyroflowPluginBase::sync_vertical_stretch_control(params);
+        } else {
+            let _ = params.set_enabled(Params::InputVerticalStretch, params.get_i32(Params::VerticalSqueezeRatio).unwrap_or(0) == 10);
+        }
         let _ = params.set_enabled(Params::ToggleOverview, loaded);
         let _ = params.set_enabled(Params::ReloadProject, loaded);
         let _ = params.set_enabled(Params::OutputWidth, loaded);
@@ -719,28 +773,32 @@ impl GyroflowPluginBaseInstance {
         self.update_squeeze_border(params);
     }
 
-    /// Publish the squeeze-ratio border to the hidden `SqueezeBorder` param.
-    /// The border is a pure auto-crop guide: it describes the region of the
-    /// source that de-squeezes to the timeline aspect
-    /// (regionW = clipH * (timelineW / timelineH) / squeeze, capped at clipW,
-    /// full height, centered) and is published as JSON
-    /// `{"x", "y", "w", "h", "squeeze"}` in source pixels. It never changes
-    /// the rendered output.
+    /// Centered source-pixel crop that de-squeezes and turns to the timeline
+    /// aspect. Both stretch axes refer to recorded pixels, before Rotation.
+    /// This is metadata only; it never crops or de-squeezes the rendered image.
     pub fn update_squeeze_border(&self, params: &mut dyn GyroflowPluginParams) {
         let squeeze = GyroflowPluginBase::get_squeeze(params);
-        let border = if squeeze > 1.001 {
+        let vertical_stretch = GyroflowPluginBase::get_vertical_stretch(params);
+        let rotation = params.get_f64(Params::Rotation).unwrap_or_default();
+        let border = if squeeze > 1.001 || vertical_stretch > 1.001 {
             let clip_w = self.original_video_size.0 as f64;
             let clip_h = self.original_video_size.1 as f64;
             let tl_w = self.timeline_size.0 as f64;
             let tl_h = self.timeline_size.1 as f64;
             if clip_w > 0.0 && clip_h > 0.0 && tl_w > 0.0 && tl_h > 0.0 {
-                let region_w = (clip_h * (tl_w / tl_h) / squeeze).min(clip_w);
+                // Undo the output quarter turn, then undo the desqueeze. The
+                // result is expressed in recorded coordinates, not host buffers.
+                let timeline_aspect = if GyroflowPluginBase::is_quarter_turn(rotation) { tl_h / tl_w } else { tl_w / tl_h };
+                let source_aspect = timeline_aspect * vertical_stretch / squeeze;
+                let region_w = (clip_h * source_aspect).min(clip_w);
+                let region_h = (region_w / source_aspect).min(clip_h);
                 Some(serde_json::json!({
                     "x": (clip_w - region_w) / 2.0,
-                    "y": 0.0,
+                    "y": (clip_h - region_h) / 2.0,
                     "w": region_w,
-                    "h": clip_h,
+                    "h": region_h,
                     "squeeze": squeeze,
+                    "vertical_stretch": vertical_stretch,
                 }))
             } else {
                 None
@@ -761,7 +819,7 @@ impl GyroflowPluginBaseInstance {
     /// can't resize. Filling the timeline is what a 4:3 clip in a 16:9 timeline or a horizontal clip in a vertical one is
     /// after, but out of a vertical clip in a horizontal timeline it would keep a third of its height, so it stays pillarboxed
     pub fn keep_clip_frame(&self, params: &dyn GyroflowPluginParams, video_size: (usize, usize), input_rotation: f64, out_size: (usize, usize)) -> bool {
-        if GyroflowPluginBase::get_squeeze(params) > 1.001 {
+        if GyroflowPluginBase::get_squeeze(params) > 1.001 || GyroflowPluginBase::get_vertical_stretch(params) > 1.001 {
             return true;
         }
         if params.get_bool(Params::DontDrawOutside).unwrap_or_default() {
@@ -774,13 +832,30 @@ impl GyroflowPluginBaseInstance {
     /// The output size to stabilize to: the clip's own frame when the image is drawn where the clip is, the host's buffer
     /// when it has a size of its own, and the plugin's output size otherwise
     pub fn output_size_for(&self, params: &dyn GyroflowPluginParams, video_size: (usize, usize), input_rotation: f64, out_size: (usize, usize)) -> (usize, usize) {
-        if self.keep_clip_frame(params, video_size, input_rotation, out_size) {
+        let size = if self.keep_clip_frame(params, video_size, input_rotation, out_size) {
             GyroflowPluginBase::rotated_size(video_size, input_rotation)
         } else if self.fixed_output_size && out_size.0 > 0 && out_size.1 > 0 {
             out_size
         } else {
             (params.get_f64(Params::OutputWidth).unwrap_or_default() as usize, params.get_f64(Params::OutputHeight).unwrap_or_default() as usize)
+        };
+        // The core projects with the sensor's (fx, fy) on both sides of the
+        // video rotation. At a quarter turn that otherwise introduces fx/fy
+        // in one axis and fy/fx in the other, even when stretch is 1. Its
+        // virtual output aspect must cancel that ratio squared. The host rect
+        // stays at the recorded, rotated aspect: no desqueeze reaches the host.
+        if size.0 > 0 && size.1 > 0 && GyroflowPluginBase::is_quarter_turn(params.get_f64(Params::Rotation).unwrap_or_default()) {
+            ((size.0 as f64 * self.pixel_focal_ratio.powi(2)).round().max(1.0) as usize, size.1)
+        } else {
+            size
         }
+    }
+
+    fn read_pixel_focal_ratio(stab: &StabilizationManager) -> f64 {
+        let compute = ComputeParams::from_manager(stab);
+        let (camera, ..) = FrameTransform::get_lens_data_at_timestamp(&compute, 0.0, false);
+        let ratio = camera[(0, 0)] / camera[(1, 1)];
+        if ratio.is_finite() && ratio > 0.0 { ratio } else { 1.0 }
     }
 
     /// Makes the output size's aspect `size`'s. The size itself doesn't matter, the output is drawn into whatever rect it
@@ -997,9 +1072,10 @@ impl GyroflowPluginBaseInstance {
     }
 
     /// The key of the stabilization the instance renders with, in `managers` and the manager cache: of the project, loaded
-    /// with Disable stretch or not, for the instance id. The instances that share it share the instance id (see `ever_changed`)
+    /// with Disable stretch or not, both input stretch axes, and the instance id.
+    /// The instances that share it share the instance id (see `ever_changed`)
     pub fn stab_key(params: &dyn GyroflowPluginParams) -> PluginResult<String> {
-        Ok(format!("{}{}{}:{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params)))
+        Ok(format!("{}{}{}:{}:{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params), GyroflowPluginBase::get_vertical_stretch(params)))
     }
 
     /// Whether an edit of `param` changes what the instance sets up its stabilization with (see `configure`), which it
@@ -1051,6 +1127,7 @@ impl GyroflowPluginBaseInstance {
         // Use the public core API: upstream has no plugin-specific squeeze_ratio field.
         stab.set_input_horizontal_stretch(1.0);
         stab.set_input_vertical_stretch(1.0);
+        self.pixel_focal_ratio = Self::read_pixel_focal_ratio(stab);
         stab.set_adaptive_zoom(Self::zooming_window(params));
         stab.set_fov_overview(params.get_bool(Params::ToggleOverview)?);
         stab.params.write().framebuffer_inverted = self.framebuffer_inverted;
@@ -1091,6 +1168,7 @@ impl GyroflowPluginBaseInstance {
     /// Whether `stab`, shared with other instances, is set up for what this one would set it up with (see `configure`).
     /// The instances only render with it as long as they all agree on it
     fn agrees_with(&mut self, params: &dyn GyroflowPluginParams, stab: &StabilizationManager, out_size: (usize, usize)) -> bool {
+        self.pixel_focal_ratio = Self::read_pixel_focal_ratio(stab);
         {
             let gf_params = stab.params.read();
             self.num_frames = gf_params.frame_count;
@@ -1304,6 +1382,7 @@ impl GyroflowPluginBaseInstance {
                     }
                     params.set_string(Params::LoadedLens, &stab.lens.read().get_display_name())?;
                     GyroflowPluginBase::set_input_horizontal_stretch(params, stab.lens.read().input_horizontal_stretch)?;
+                    GyroflowPluginBase::set_input_vertical_stretch(params, stab.lens.read().input_vertical_stretch)?;
                 }
                 // The adjustments, unless they came with the effect
                 if loaded && reload_adjustments && !std::mem::take(&mut self.keep_adjustments) {
@@ -1509,6 +1588,13 @@ impl GyroflowPluginBaseInstance {
     }
 
     pub fn param_changed(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, param: Params, user_edited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if param == Params::VerticalSqueezeRatio {
+            let index = params.get_i32(Params::VerticalSqueezeRatio).unwrap_or(0);
+            if user_edited {
+                params.set_string(Params::VerticalStretchControlVersion, "1")?;
+            }
+            params.set_enabled(Params::InputVerticalStretch, index == 10)?;
+        }
         if user_edited && !self.ever_changed && Self::changes_stabilization(param) {
             // From now on it's set up for this instance's values, rather than for the ones it shares with its copies
             self.detach(params, manager_cache)?;
@@ -1626,13 +1712,13 @@ impl GyroflowPluginBaseInstance {
             }
             self.clear_stab(&manager_cache);
         }
-        if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
+        if matches!(param, Params::SqueezeRatio | Params::CustomSqueezeRatio | Params::VerticalSqueezeRatio | Params::InputVerticalStretch | Params::Rotation | Params::InputRotation | Params::OutputSizeToTimeline) {
             // Publish the source-pixel auto-crop guide.
             let _ = params.set_enabled(Params::CustomSqueezeRatio,
                                        params.get_i32(Params::SqueezeRatio).unwrap_or(0) == 10);
             self.update_squeeze_border(params);
         }
-        if param == Params::SqueezeRatio || param == Params::CustomSqueezeRatio || param == Params::OutputSizeToTimeline {
+        if matches!(param, Params::SqueezeRatio | Params::CustomSqueezeRatio | Params::VerticalSqueezeRatio | Params::InputVerticalStretch | Params::OutputSizeToTimeline) {
             // Reload the stored zoom settings when anamorphic mode is disabled.
             self.clear_stab(&manager_cache);
         }
@@ -1925,9 +2011,10 @@ mod tests {
         bools: HashMap<Params, bool>,
         f64s: HashMap<Params, f64>,
         i32s: HashMap<Params, i32>,
+        enabled: HashMap<Params, bool>,
     }
     impl GyroflowPluginParams for TestParams {
-        fn set_enabled(&mut self, _: Params, _: bool) -> PluginResult<()> { Ok(()) }
+        fn set_enabled(&mut self, p: Params, enabled: bool) -> PluginResult<()> { self.enabled.insert(p, enabled); Ok(()) }
         fn set_label(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
         fn set_hint(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
         fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> { self.f64s.insert(p, v); Ok(()) }
@@ -2013,6 +2100,277 @@ mod tests {
             GyroflowPluginBase::set_input_horizontal_stretch(&mut params, input).unwrap();
             assert_eq!(GyroflowPluginBase::get_squeeze(&params), expected);
         }
+    }
+
+    #[test]
+    fn vertical_lens_stretch_initializes_and_preserves_manual_values() {
+        let mut params = params();
+        let stab = StabilizationManager::default();
+        stab.load_lens_profile(include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json")).unwrap();
+        GyroflowPluginBase::set_input_horizontal_stretch(&mut params, stab.lens.read().input_horizontal_stretch).unwrap();
+        GyroflowPluginBase::set_input_vertical_stretch(&mut params, stab.lens.read().input_vertical_stretch).unwrap();
+        assert_eq!(GyroflowPluginBase::get_squeeze(&params), 1.0);
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.5);
+        assert_eq!(params.get_i32(Params::VerticalSqueezeRatio).unwrap(), 4);
+        assert_eq!(params.enabled[&Params::InputVerticalStretch], false);
+
+        let mut inst = GyroflowPluginBaseInstance { fixed_output_size: true, ..Default::default() };
+        assert!(inst.keep_clip_frame(&params, (3840, 2160), 270.0, (1080, 1920)));
+        assert_eq!(inst.output_size_for(&params, (3840, 2160), 270.0, (1080, 1920)), (2160, 3840));
+        let key = GyroflowPluginBaseInstance::stab_key(&params).unwrap();
+        params.set_i32(Params::VerticalSqueezeRatio, 10).unwrap();
+        params.set_f64(Params::InputVerticalStretch, 1.42).unwrap();
+        assert_ne!(key, GyroflowPluginBaseInstance::stab_key(&params).unwrap());
+        stab.init_from_video_data(1000.0, 24.0, 24, (3840, 2160));
+        inst.configure(&mut params, &stab, (1080, 1920), false).unwrap();
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.42);
+        assert_eq!(stab.params.read().size, (3840, 2160));
+        assert_eq!(stab.lens.read().input_vertical_stretch, 1.0);
+        assert_eq!(stab.lens.read().input_horizontal_stretch, 1.0);
+
+        // Loading a spherical profile resets the editable value; absent values
+        // from older hosts/projects and invalid values use the neutral stretch.
+        for (input, expected) in [(1.0, 1.0), (f64::NAN, 1.0), (0.0, 1.0), (-1.0, 1.0), (3.0, 2.0)] {
+            GyroflowPluginBase::set_input_vertical_stretch(&mut params, input).unwrap();
+            assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), expected);
+        }
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&TestParams::default()), 1.0);
+    }
+
+    #[test]
+    fn anamorphic_quarter_turn_preserves_squeezed_pixel_proportions() {
+        for lens in [include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json"), include_str!("../tests/fixtures/sony_aivascope_1_5x.json")] {
+            for rotation in [0.0, 90.0, 180.0, 270.0] {
+                for correction in [0.0, 100.0] {
+                    let mut params = params();
+                    params.set_f64(Params::Rotation, rotation).unwrap();
+                    params.set_f64(Params::InputRotation, rotation).unwrap();
+                    params.set_f64(Params::Fov, 1.0).unwrap();
+                    params.set_f64(Params::LensCorrectionStrength, correction).unwrap();
+                    let stab = StabilizationManager::default();
+                    stab.init_from_video_data(1000.0, 24.0, 24, (3840, 2160));
+                    stab.load_lens_profile(lens).unwrap();
+                    GyroflowPluginBase::set_input_horizontal_stretch(&mut params, stab.lens.read().input_horizontal_stretch).unwrap();
+                    GyroflowPluginBase::set_input_vertical_stretch(&mut params, stab.lens.read().input_vertical_stretch).unwrap();
+                    let mut inst = GyroflowPluginBaseInstance { fixed_output_size: true, framebuffer_inverted: true, ..Default::default() };
+                    let size = GyroflowPluginBase::rotated_size((384, 216), rotation);
+                    inst.configure(&mut params, &stab, size, true).unwrap();
+                    let geometry = GyroflowPluginBase::render_geometry((3840, 2160), rotation, size, size, false, true, true);
+                    let buffers = Buffers {
+                        input: BufferDescription { size: (size.0, size.1, size.0 * 4), rect: Some(geometry.src_rect), rotation: Some(geometry.kernel_rotation as f32), ..Default::default() },
+                        output: BufferDescription { size: (size.0, size.1, size.0 * 4), rect: geometry.out_rect, ..Default::default() },
+                    };
+                    let frame = stab.stabilization.read().get_frame_transform_at::<RGBA8>(0, None, &buffers);
+                    let kp = frame.kernel_params;
+                    let cp = ComputeParams::from_manager(&stab);
+                    let out_c = [kp.output_width as f32 / 2.0, kp.output_height as f32 / 2.0].into();
+                    let out_f = [kp.f[0] / kp.fov, kp.f[1] / kp.fov].into();
+                    let map = |x, y| Stabilization::undistort_coord([x, y].into(), &kp, &frame.matrices, &cp.distortion_model, None, &[], &out_c, &out_f).unwrap();
+                    let x = size.0 as f32 / 2.0;
+                    let y = size.1 as f32 / 2.0;
+                    let horizontal = map(x + 2.0, y) - map(x - 2.0, y);
+                    let vertical = map(x, y + 2.0) - map(x, y - 2.0);
+                    let ratio = horizontal.norm() / vertical.norm();
+                    assert!((ratio - 1.0).abs() < 0.002, "rotation {rotation}: pixel aspect changed to {ratio}");
+                    assert!(horizontal.dot(&vertical).abs() / (horizontal.norm() * vertical.norm()) < 0.002);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn vertical_presets_custom_edits_and_slider_only_restore() {
+        let cache = cache();
+        let mut inst = GyroflowPluginBaseInstance::default();
+        let mut params = params();
+        // An instance saved by the slider-only build has no dropdown value.
+        params.set_f64(Params::InputVerticalStretch, 1.5).unwrap();
+        inst.update_loaded_state(&mut params, true);
+        assert_eq!(params.get_i32(Params::VerticalSqueezeRatio).unwrap(), 4);
+        assert!(!params.enabled[&Params::InputVerticalStretch]);
+        for (index, stretch) in ANAMORPHIC_SQUEEZE_OPTIONS.into_iter().enumerate() {
+            params.set_i32(Params::VerticalSqueezeRatio, index as i32).unwrap();
+            inst.param_changed(&mut params, &cache, Params::VerticalSqueezeRatio, true).unwrap();
+            assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), stretch);
+            assert!(!params.enabled[&Params::InputVerticalStretch]);
+        }
+        params.set_i32(Params::VerticalSqueezeRatio, 10).unwrap();
+        inst.param_changed(&mut params, &cache, Params::VerticalSqueezeRatio, true).unwrap();
+        assert!(params.enabled[&Params::InputVerticalStretch]);
+        params.set_f64(Params::InputVerticalStretch, 1.42).unwrap();
+        inst.param_changed(&mut params, &cache, Params::InputVerticalStretch, true).unwrap();
+        inst.update_loaded_state(&mut params, true);
+        assert_eq!(params.get_i32(Params::VerticalSqueezeRatio).unwrap(), 10);
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.42);
+        assert!(params.enabled[&Params::InputVerticalStretch]);
+        params.set_i32(Params::VerticalSqueezeRatio, 4).unwrap();
+        inst.param_changed(&mut params, &cache, Params::VerticalSqueezeRatio, true).unwrap();
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.5);
+        params.set_i32(Params::VerticalSqueezeRatio, 10).unwrap();
+        inst.param_changed(&mut params, &cache, Params::VerticalSqueezeRatio, true).unwrap();
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.42);
+        GyroflowPluginBase::set_input_vertical_stretch(&mut params, 1.0).unwrap();
+        assert_eq!(params.get_i32(Params::VerticalSqueezeRatio).unwrap(), 0);
+        assert!(!params.enabled[&Params::InputVerticalStretch]);
+    }
+
+    #[test]
+    fn ofx_disabled_stretch_load_preserves_recorded_bounds_on_both_axes() {
+        for disable_stretch in [false, true] {
+            for (lens, rotation, timeline, expected_input) in [
+                (include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json"), 270.0, (3240, 3840), (540, 0, 2160, 3840)),
+                (include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json"), 90.0, (1080, 1920), (0, 0, 1080, 1920)),
+                (include_str!("../tests/fixtures/sony_aivascope_1_5x.json"), 0.0, (1920, 1080), (0, 0, 1920, 1080)),
+            ] {
+                let mut params = params();
+                params.set_f64(Params::InputRotation, rotation).unwrap();
+                params.set_f64(Params::Fov, 1.0).unwrap();
+                params.set_i32(Params::Interpolation, 2).unwrap();
+                params.set_bool(Params::DisableStretch, disable_stretch).unwrap();
+                params.set_bool(Params::IncludeProjectData, true).unwrap();
+                params.set_string(Params::ProjectData, &serde_json::json!({
+                    "version": 4,
+                    "video_info": { "width": 3840, "height": 2160, "rotation": rotation, "fps": 24.0, "duration_ms": 1000.0, "num_frames": 24 },
+                    "calibration_data": serde_json::from_str::<serde_json::Value>(lens).unwrap(),
+                }).to_string()).unwrap();
+                // Match OFX's actual host contract: the pixels have not been
+                // desqueezed before entering the plugin, including on Color/Edit.
+                let mut inst = GyroflowPluginBaseInstance {
+                    fixed_output_size: true,
+                    framebuffer_inverted: true,
+                    anamorphic_adjust_size: false,
+                    reload_values_from_project: true,
+                    ..Default::default()
+                };
+                let stab = inst.stab_manager(&mut params, &cache(), timeline, false).unwrap();
+                assert_eq!(stab.params.read().size, (3840, 2160));
+                assert_eq!(inst.original_video_size, (3840, 2160));
+                let geometry = GyroflowPluginBase::render_geometry(stab.params.read().size, rotation, timeline, timeline, false, true, true);
+                assert_eq!(geometry.src_rect, expected_input);
+                assert_eq!(geometry.out_rect, Some(expected_input));
+                let actual = stab.params.read().output_size;
+                let expected = inst.output_size_for(&params, (3840, 2160), rotation, timeline);
+                // The core may uniformly resize its virtual canvas to the input;
+                // its aspect, not its absolute dimensions, defines pixel sampling.
+                assert!(((actual.0 as f64 / actual.1 as f64) / (expected.0 as f64 / expected.1 as f64) - 1.0).abs() < 0.001);
+                {
+                    // Real CPU sampling, with black pillarboxes in Resolve's input
+                    // buffer. A source-rectangle error samples those bars as video.
+                    let size = (timeline.0 / 10, timeline.1 / 10, timeline.0 / 10 * 4);
+                    let geometry = GyroflowPluginBase::render_geometry((3840, 2160), rotation, (size.0, size.1), (size.0, size.1), false, true, true);
+                    let (x, y, w, h) = geometry.src_rect;
+                    let mut input = vec![0u8; size.2 * size.1];
+                    for row in y..y + h {
+                        input[row * size.2 + x * 4..row * size.2 + (x + w) * 4].fill(255);
+                    }
+                    let mut output = vec![0u8; input.len()];
+                    stab.stabilization.write().set_device(-1);
+                    stab.process_pixels::<RGBA8>(0, None, &mut Buffers {
+                        input: BufferDescription { size, rect: Some(geometry.src_rect), rotation: Some(geometry.kernel_rotation as f32), data: BufferSource::Cpu { buffer: &mut input }, texture_copy: false },
+                        output: BufferDescription { size, rect: geometry.out_rect, data: BufferSource::Cpu { buffer: &mut output }, ..Default::default() },
+                    }).unwrap();
+                    // Ignore the outermost interpolation footprint, checking both
+                    // edges and the interior all the way up and down the image.
+                    for row in y + 2..y + h - 2 {
+                        for col in x + 2..x + w - 2 {
+                            assert!(output[row * size.2 + col * 4] > 240, "sampled black host border at {col},{row}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires GYROFLOW_VERTICAL_SAMPLE pointing to the supplied Sony clip"]
+    fn sony_vertical_sample_cpu_edges() {
+        let mut params = params();
+        params.set_string(Params::ProjectPath, &std::env::var("GYROFLOW_VERTICAL_SAMPLE").expect("set GYROFLOW_VERTICAL_SAMPLE")).unwrap();
+        params.set_string(Params::EmbeddedLensProfile, include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json")).unwrap();
+        params.set_bool(Params::DisableStretch, true).unwrap();
+        params.set_f64(Params::Fov, 1.0).unwrap();
+        params.set_f64(Params::ZoomLimit, 130.0).unwrap();
+        params.set_i32(Params::Zooming, 1).unwrap();
+        params.set_i32(Params::Interpolation, 2).unwrap();
+        let mut inst = GyroflowPluginBaseInstance {
+            fixed_output_size: true,
+            framebuffer_inverted: true,
+            anamorphic_adjust_size: false,
+            reload_values_from_project: true,
+            keep_adjustments: true,
+            ..Default::default()
+        };
+        let stab = inst.stab_manager(&mut params, &cache(), (3240, 3840), false).unwrap();
+        assert_eq!(stab.params.read().size, (3840, 2160));
+        assert_eq!(params.get_f64(Params::InputRotation).unwrap(), 270.0);
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&params), 1.5);
+        let geometry = GyroflowPluginBase::render_geometry((3840, 2160), 270.0, (324, 384), (324, 384), false, true, true);
+        let size = (324, 384, 324 * 4);
+        let (x, y, w, h) = geometry.src_rect;
+        let mut input = vec![0u8; size.2 * size.1];
+        for row in y..y + h {
+            input[row * size.2 + x * 4..row * size.2 + (x + w) * 4].fill(255);
+        }
+        stab.stabilization.write().set_device(-1);
+        for frame in [0, 75, 150, 225, 299] {
+            let mut output = vec![0u8; input.len()];
+            let timestamp = (frame as f64 / inst.fps * 1_000_000.0).round() as i64;
+            stab.process_pixels::<RGBA8>(timestamp, None, &mut Buffers {
+                input: BufferDescription { size, rect: Some(geometry.src_rect), rotation: Some(geometry.kernel_rotation as f32), data: BufferSource::Cpu { buffer: &mut input }, texture_copy: false },
+                output: BufferDescription { size, rect: geometry.out_rect, data: BufferSource::Cpu { buffer: &mut output }, ..Default::default() },
+            }).unwrap();
+            let mut dark = 0;
+            for row in y + 2..y + h - 2 {
+                for col in x + 2..x + w - 2 {
+                    dark += usize::from(output[row * size.2 + col * 4] < 240);
+                }
+            }
+            assert_eq!(dark, 0, "black host-border samples at frame {frame}");
+        }
+    }
+
+    #[test]
+    fn rotated_vertical_stretch_border_uses_recorded_source_coordinates() {
+        let mut params = params();
+        params.set_f64(Params::InputVerticalStretch, 1.5).unwrap();
+        let mut inst = GyroflowPluginBaseInstance {
+            original_video_size: (3840, 2160),
+            timeline_size: (3240, 3840),
+            ..Default::default()
+        };
+        let assert_border = |params: &TestParams, expected: [f64; 4]| {
+            let border: serde_json::Value = serde_json::from_str(&params.get_string(Params::SqueezeBorder).unwrap()).unwrap();
+            for (name, expected) in ["x", "y", "w", "h"].into_iter().zip(expected) {
+                assert!((border[name].as_f64().unwrap() - expected).abs() < 1e-6, "{name}: {border}");
+            }
+            assert_eq!(border["vertical_stretch"], 1.5);
+        };
+        for rotation in [90.0, 270.0, -90.0] {
+            params.set_f64(Params::Rotation, rotation).unwrap();
+            inst.timeline_size = (3240, 3840);
+            inst.update_squeeze_border(&mut params);
+            assert_border(&params, [0.0, 0.0, 3840.0, 2160.0]);
+            inst.timeline_size = (1080, 1920);
+            inst.update_squeeze_border(&mut params);
+            assert_border(&params, [0.0, 360.0, 3840.0, 1440.0]);
+            inst.timeline_size = (1920, 1080);
+            inst.update_squeeze_border(&mut params);
+            assert_border(&params, [1008.75, 0.0, 1822.5, 2160.0]);
+        }
+        for rotation in [0.0, 180.0] {
+            params.set_f64(Params::Rotation, rotation).unwrap();
+            inst.timeline_size = (3840, 3240);
+            inst.update_squeeze_border(&mut params);
+            assert_border(&params, [0.0, 0.0, 3840.0, 2160.0]);
+        }
+        // InputRotation only locates pixels in host buffers; it must not change
+        // the output-oriented guide (Fusion may supply an unturned input).
+        params.set_f64(Params::InputRotation, 270.0).unwrap();
+        inst.update_squeeze_border(&mut params);
+        assert_border(&params, [0.0, 0.0, 3840.0, 2160.0]);
+        params.set_f64(Params::InputVerticalStretch, 1.0).unwrap();
+        inst.update_squeeze_border(&mut params);
+        assert!(params.get_string(Params::SqueezeBorder).unwrap().is_empty());
     }
 
     #[test]

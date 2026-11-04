@@ -35,6 +35,7 @@ define_params!(ParamHandler {
         EmbeddedLensProfile => embedded_lens:    ParamHandle<String>,
         EmbeddedPreset      => embedded_preset:  ParamHandle<String>,
         SqueezeBorder       => squeeze_border:   ParamHandle<String>,
+        VerticalStretchControlVersion => vertical_stretch_control_version: ParamHandle<String>,
         ProjectPath         => project_path:     ParamHandle<String>,
         OpenGyroflow        => open_in_gyroflow: ParamHandle<String>,
         ReloadProject       => reload_project:   ParamHandle<String>,
@@ -68,6 +69,7 @@ define_params!(ParamHandler {
         OutputWidth           => output_width:             ParamHandle<Double>,
         OutputHeight          => output_height:            ParamHandle<Double>,
         CustomSqueezeRatio    => custom_squeeze_ratio:     ParamHandle<Double>,
+        InputVerticalStretch  => input_vertical_stretch:   ParamHandle<Double>,
         //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
@@ -75,6 +77,7 @@ define_params!(ParamHandler {
         Interpolation         => interpolation:            ParamHandle<Int>,
         IntegrationMethod     => integration_method:       ParamHandle<Int>,
         SqueezeRatio          => squeeze_ratio:            ParamHandle<Int>,
+        VerticalSqueezeRatio  => vertical_squeeze_ratio:   ParamHandle<Int>,
     ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
@@ -456,6 +459,7 @@ impl Execute for GyroflowPlugin {
                         embedded_lens:            param_set.parameter("EmbeddedLensProfile")?,
                         embedded_preset:          param_set.parameter("EmbeddedPreset")?,
                         squeeze_border:           param_set.parameter("SqueezeBorder")?,
+                        vertical_stretch_control_version: param_set.parameter("VerticalStretchControlVersion")?,
                         project_path:             param_set.parameter("ProjectPath")?,
                         disable_stretch:          param_set.parameter("DisableStretch")?,
                         status:                   param_set.parameter("Status")?,
@@ -487,6 +491,8 @@ impl Execute for GyroflowPlugin {
                         zooming:                  param_set.parameter("Zooming")?,
                         squeeze_ratio:            param_set.parameter("SqueezeRatio")?,
                         custom_squeeze_ratio:     param_set.parameter("CustomSqueezeRatio")?,
+                        input_vertical_stretch:   param_set.parameter("InputVerticalStretch")?,
+                        vertical_squeeze_ratio:   param_set.parameter("VerticalSqueezeRatio")?,
 
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,
@@ -509,9 +515,12 @@ impl Execute for GyroflowPlugin {
                         opencl_disabled:             false,
                         cache_keyframes_every_frame: true,
                         framebuffer_inverted:        true,
-                        anamorphic_adjust_size:      true,
+                        // Resolve supplies recorded pixels (fitted and rotated
+                        // into its buffer), not lens-profile desqueezed pixels.
+                        anamorphic_adjust_size:      false,
                         fixed_output_size:           false,
                         last_out_size:               (0, 0),
+                        pixel_focal_ratio:           1.0,
                         has_motion:                  false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,

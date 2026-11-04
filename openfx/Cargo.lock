@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "gyroflow-ofx"
-version = "2.2.3"
+version = "2.2.6"
 dependencies = [
  "gyroflow-plugin-base",
  "log",
