@@ -52,9 +52,9 @@ Nikon NRAW (`.NEV`) and R3D NE (`.R3D`) metadata can also be loaded directly whe
 The current parser extracts no IMU samples from the tested Nikon ZR files, so gyro stabilization requires synchronized external motion data in a `.gyroflow` project.
 See the [Nikon workflow and validation results](README-OpenFX.md#nikon-nraw-and-r3d-ne).
 
-### Anamorphic squeeze ratio
+### Input horizontal stretch
 
-The OpenFX and Adobe plugins support anamorphic input through the **Input Squeeze ratio** control in the plugin parameters. Choose a preset ratio or select **Custom** and enter a value from `1.0x` to `2.0x`. The plugins keep the source image unchanged and publish the calculated centered auto-crop region through the hidden `SqueezeBorder` parameter for host integrations that can consume it; the border is a guide and does not itself crop or de-squeeze the rendered image.
+The OpenFX and Adobe plugins support anamorphic input through the **Input horizontal stretch** control in the plugin parameters. Choose a preset ratio or select **Custom** and enter a value from `1.0x` to `2.0x`. Loading a lens profile or project initializes this control from the lens profile's `input_horizontal_stretch` within that range; values without a matching preset select **Custom**. You can adjust it afterward, and saved effects retain manual overrides. Internal parameter IDs remain unchanged for compatibility. The plugins keep the source image unchanged and publish the calculated centered auto-crop region through the hidden `SqueezeBorder` parameter for host integrations that can consume it; the border is a guide and does not itself crop or de-squeeze the rendered image.
 
 ---
 

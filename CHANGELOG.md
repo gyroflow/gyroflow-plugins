@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Renamed Input Squeeze ratio to Input horizontal stretch. Fresh lens/project loads initialize it from the lens profile's `input_horizontal_stretch`, selecting a preset or Custom within the supported 1x-2x range. Manual edits and saved effect values remain available; parameter IDs and crop-guide rendering behavior are unchanged.
+
 - Lens correction now defaults to 0 for new instances and fresh project/preset loads, ignoring imported correction values and curves. Saved effect settings and subsequent user edits remain available.
 
 - Added a Zooming selector before Integration method with Static zooming and Dynamic zooming (4-second smoothing). Static is the default; imported No zooming settings map to Static. Both modes work with anamorphic framing and participate in recalculation and instance isolation.

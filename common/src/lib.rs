@@ -281,6 +281,19 @@ impl GyroflowPluginBase {
         }
     }
 
+    /// Initialize the editable control from a newly loaded lens, before the
+    /// renderer resets lens stretch to preserve stored-pixel geometry.
+    fn set_input_horizontal_stretch(params: &mut dyn GyroflowPluginParams, stretch: f64) -> PluginResult<()> {
+        let stretch = if stretch.is_finite() && stretch > 0.0 { stretch.clamp(1.0, 2.0) } else { 1.0 };
+        let index = ANAMORPHIC_SQUEEZE_OPTIONS.iter().position(|v| (v - stretch).abs() < 0.000001);
+        if index.is_none() {
+            params.set_f64(Params::CustomSqueezeRatio, stretch)?;
+        }
+        params.set_i32(Params::SqueezeRatio, index.unwrap_or(10) as i32)?;
+        params.set_enabled(Params::CustomSqueezeRatio, index.is_none())?;
+        Ok(())
+    }
+
     /// Whether a rotation in degrees is a quarter turn either way, ie. swaps the width and height of the frame
     pub fn is_quarter_turn(rotation: f64) -> bool {
         (rotation.rem_euclid(180.0) - 90.0).abs() < 1.0
@@ -452,8 +465,8 @@ impl GyroflowPluginBase {
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "Zooming",                label: "Zooming",              hint: "Static zooming uses one crop for the clip. Dynamic zooming adapts the crop with a 4-second smoothing window.", options: vec!["Static zooming", "Dynamic zooming"], default: "Static zooming" },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
-                ParameterType::Select   { id: "SqueezeRatio",       label: "Input Squeeze ratio",       hint: "Anamorphic squeeze ratio of the lens. When greater than 1x it only publishes the auto-crop border guide (regionW = clipH * timelineAspect / squeeze, full height, centered) to the hidden SqueezeBorder parameter; it never changes the rendered output.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
-                ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom squeeze ratio", hint: "Custom squeeze ratio (1.0x - 2.0x), used when Squeeze ratio is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
+                ParameterType::Select   { id: "SqueezeRatio",       label: "Input horizontal stretch",       hint: "Initialized from input_horizontal_stretch when loading a lens profile; can be adjusted manually. When greater than 1x it only publishes the auto-crop border guide (regionW = clipH * timelineAspect / stretch, full height, centered) to the hidden SqueezeBorder parameter; it never changes the rendered output.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
+                ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom horizontal stretch", hint: "Custom horizontal stretch (1.0x - 2.0x), used when Input horizontal stretch is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
                 ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zooming, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
@@ -1290,6 +1303,7 @@ impl GyroflowPluginBaseInstance {
                         params.set_string(Params::LoadedPreset, &name)?;
                     }
                     params.set_string(Params::LoadedLens, &stab.lens.read().get_display_name())?;
+                    GyroflowPluginBase::set_input_horizontal_stretch(params, stab.lens.read().input_horizontal_stretch)?;
                 }
                 // The adjustments, unless they came with the effect
                 if loaded && reload_adjustments && !std::mem::take(&mut self.keep_adjustments) {
@@ -1961,6 +1975,44 @@ mod tests {
     }
     fn id(params: &TestParams) -> String {
         params.get_string(Params::InstanceId).unwrap()
+    }
+
+    #[test]
+    fn lens_horizontal_stretch_initializes_presets_and_custom_values() {
+        let mut params = params();
+        // The supplied Sony ILCE-9M3 / Aivascope profile uses 1.5.
+        let stab = StabilizationManager::default();
+        stab.load_lens_profile(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        GyroflowPluginBase::set_input_horizontal_stretch(&mut params, stab.lens.read().input_horizontal_stretch).unwrap();
+        assert_eq!(params.get_i32(Params::SqueezeRatio).unwrap(), 4);
+        assert_eq!(GyroflowPluginBase::get_squeeze(&params), 1.5);
+        let mut inst = GyroflowPluginBaseInstance {
+            original_video_size: (5760, 2160),
+            timeline_size: (1920, 1080),
+            ..Default::default()
+        };
+        inst.update_squeeze_border(&mut params);
+        let border: serde_json::Value = serde_json::from_str(&params.get_string(Params::SqueezeBorder).unwrap()).unwrap();
+        assert_eq!(border["w"], 2560.0);
+        assert_eq!(border["x"], 1600.0);
+
+        // Rendering setup must preserve a subsequent manual override.
+        params.set_i32(Params::SqueezeRatio, 10).unwrap();
+        params.set_f64(Params::CustomSqueezeRatio, 1.47).unwrap();
+        stab.init_from_video_data(1000.0, 24.0, 24, (5760, 2160));
+        inst.configure(&mut params, &stab, (1920, 1080), false).unwrap();
+        assert_eq!(GyroflowPluginBase::get_squeeze(&params), 1.47);
+
+        GyroflowPluginBase::set_input_horizontal_stretch(&mut params, 1.42).unwrap();
+        assert_eq!(params.get_i32(Params::SqueezeRatio).unwrap(), 10);
+        assert_eq!(GyroflowPluginBase::get_squeeze(&params), 1.42);
+        // Returning to a spherical lens clears the previous anamorphic value.
+        GyroflowPluginBase::set_input_horizontal_stretch(&mut params, 1.0).unwrap();
+        assert_eq!(GyroflowPluginBase::get_squeeze(&params), 1.0);
+        for (input, expected) in [(f64::NAN, 1.0), (0.0, 1.0), (-1.0, 1.0), (3.0, 2.0)] {
+            GyroflowPluginBase::set_input_horizontal_stretch(&mut params, input).unwrap();
+            assert_eq!(GyroflowPluginBase::get_squeeze(&params), expected);
+        }
     }
 
     #[test]

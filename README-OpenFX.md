@@ -44,9 +44,9 @@ Loading a project or preset selects its zoom mode; No zooming maps to Static zoo
 Both choices also work with anamorphic squeeze ratios. The choice is saved with the
 effect, and changing it recalculates stabilization without affecting copied instances.
 
-## Anamorphic squeeze ratio
+## Input horizontal stretch
 
-Use **Input Squeeze ratio** in the plugin parameters to select a common anamorphic ratio or **Custom** for a value from `1.0x` to `2.0x`. In anamorphic mode, the plugin preserves the raw image and exposes the centered auto-crop region as JSON through the hidden `SqueezeBorder` parameter. This border is a guide for host integrations; it does not crop or de-squeeze the rendered image.
+Use **Input horizontal stretch** in the plugin parameters to select a common anamorphic ratio or **Custom** for a value from `1.0x` to `2.0x`. Loading a lens profile or project initializes this control from the lens profile's `input_horizontal_stretch` within that range; values without a matching preset select **Custom**. You can adjust it afterward, and saved effects retain manual overrides. Internal parameter IDs remain unchanged for compatibility. In anamorphic mode, the plugin preserves the raw image and exposes the centered auto-crop region as JSON through the hidden `SqueezeBorder` parameter. This border is a guide for host integrations; it does not crop or de-squeeze the rendered image.
 
 ### Export `.gyroflow` file in the Gyroflow app
 
