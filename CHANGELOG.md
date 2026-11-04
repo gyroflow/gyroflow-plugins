@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed the cross-axis stretch disabling change after reported Resolve crashes, restoring the known-good independent controls. Restored the package version to 2.2.7 and kept the library/short name Gyroflow (Omni); only the long effect label includes the version. Future version changes require an explicit request.
+
 - Fixed implicit anamorphic scaling on 90/270-degree footage after disabling stretch: the virtual output aspect now compensates the effective recorded-pixel focal ratio, while the host source/output rectangles retain their squeezed proportions. This shares the corrected geometry with rendering and zoom calculation. Added pixel-proportion regressions for both anamorphic axes at all quarter turns, with lens correction at 0% and 100%, alongside border-sampling tests with Disable stretch both on and off.
 
 - Input vertical stretch now matches the horizontal preset dropdown and optional Custom slider. Effects saved with the slider-only control migrate their value on load, and selecting a preset preserves the custom value. OFX no longer enlarges the recorded source dimensions when Disable Gyroflow's stretch is checked: buffer fitting and zoom bounds use the actual recorded frame, avoiding sampling Resolve's side bars as image content. Added load-path and CPU pixel regressions for vertical/horizontal profiles and rotated buffers.

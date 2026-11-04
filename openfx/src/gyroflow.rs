@@ -7,6 +7,8 @@ use gyroflow_plugin_base::*;
 use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
 
+const PLUGIN_LABEL: &str = concat!("Gyroflow (Omni) ", env!("CARGO_PKG_VERSION"));
+
 plugin_module!(
     "xyz.gyroflow.omni",
     ApiVersion(1),
@@ -734,7 +736,7 @@ impl Execute for GyroflowPlugin {
 
                 effect_properties.set_label("Gyroflow (Omni)")?;
                 effect_properties.set_short_label("Gyroflow (Omni)")?;
-                effect_properties.set_long_label("Gyroflow (Omni)")?;
+                effect_properties.set_long_label(PLUGIN_LABEL)?;
 
                 effect_properties.set_supported_pixel_depths(&[BitDepth::Byte, BitDepth::Short, BitDepth::Float])?;
                 effect_properties.set_supported_contexts(&[ImageEffectContext::Filter])?;
