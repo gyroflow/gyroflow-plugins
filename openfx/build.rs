@@ -16,6 +16,8 @@ fn main() {
         }
 
         let mut res = winres::WindowsResource::new();
+        res.set("ProductName", "Gyroflow (Omni)");
+        res.set("FileDescription", "Gyroflow (Omni) OpenFX plugin");
         res.set("FileVersion", &version_short);
         res.set("ProductVersion", &version);
         res.compile().unwrap();

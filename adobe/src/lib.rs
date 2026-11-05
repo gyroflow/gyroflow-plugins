@@ -403,6 +403,8 @@ impl CrossThreadInstance {
             anamorphic_adjust_size:         false,
             fixed_output_size:              false,
             last_out_size:                  (0, 0),
+            pixel_focal_ratio:              1.0,
+            crop_to_timeline_window:        false,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()
@@ -722,7 +724,7 @@ impl AdobePluginGlobal for Plugin {
 
         match cmd {
             ae::Command::About => {
-                out_data.set_return_msg(concat!("Gyroflow, v", env!("CARGO_PKG_VERSION"), "\nCopyright 2024 AdrianEddy\rGyroflow plugin."));
+                out_data.set_return_msg(concat!("Gyroflow (Omni), v", env!("CARGO_PKG_VERSION"), "\nCopyright 2024 AdrianEddy\rGyroflow (Omni) plugin."));
             }
             ae::Command::GlobalSetup => {
                 gyroflow_core::gpu::initialize_contexts();

@@ -33,7 +33,7 @@ update:
 
 publish version:
     #!/bin/bash
-    git clone --depth 1 git@github.com:gyroflow/gyroflow-plugins.git __publish
+    git clone --depth 1 git@github.com:yshui1/gyroflow-plugins-omni.git __publish
     pushd __publish
     sed -i'' -E "0,/version = \"[0-9\.a-z-]+\"/s//version = \"{{version}}\"/" adobe/Cargo.toml
     sed -i'' -E "0,/version = \"[0-9\.a-z-]+\"/s//version = \"{{version}}\"/" openfx/Cargo.toml
