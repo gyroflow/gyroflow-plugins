@@ -681,6 +681,9 @@ pub struct GyroflowPluginBaseInstance {
     /// Effective fx/fy in recorded pixels. A quarter-turn ray projection must
     /// compensate this anisotropy before fitting back into the host's raw frame.
     pub pixel_focal_ratio: f64,
+    /// Anamorphic clips are stabilized to the part of the clip the timeline shows once de-squeezed after the effect
+    /// (`timeline_window`), drawn into that part of the clip's rect. For hosts that pass the output rect (OpenFX)
+    pub crop_to_timeline_window: bool,
 
     pub opencl_disabled: bool,
 }
@@ -704,6 +707,7 @@ impl Clone for GyroflowPluginBaseInstance {
             fixed_output_size:              self.fixed_output_size,
             last_out_size:                  self.last_out_size,
             pixel_focal_ratio:              self.pixel_focal_ratio,
+            crop_to_timeline_window:        self.crop_to_timeline_window,
             keyframable_params:             Arc::new(RwLock::new(self.keyframable_params.read().clone())),
         }
     }
@@ -728,6 +732,7 @@ impl Default for GyroflowPluginBaseInstance {
             fixed_output_size:              false,
             last_out_size:                  (0, 0),
             pixel_focal_ratio:              1.0,
+            crop_to_timeline_window:        false,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false, // TODO param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
                 cached_keyframes:         KeyframeManager::default()
@@ -773,39 +778,61 @@ impl GyroflowPluginBaseInstance {
         self.update_squeeze_border(params);
     }
 
-    /// Centered source-pixel crop that de-squeezes and turns to the timeline
-    /// aspect. Both stretch axes refer to recorded pixels, before Rotation.
-    /// This is metadata only; it never crops or de-squeezes the rendered image.
-    pub fn update_squeeze_border(&self, params: &mut dyn GyroflowPluginParams) {
+    /// Size in recorded pixels of the centered region of the clip that, de-squeezed and turned by Rotation, has the
+    /// timeline's aspect: what the timeline shows of the clip once it's de-squeezed after the effect. `None` without
+    /// an anamorphic stretch, or before the clip and timeline sizes are known
+    fn squeeze_region(&self, params: &dyn GyroflowPluginParams) -> Option<(f64, f64)> {
         let squeeze = GyroflowPluginBase::get_squeeze(params);
         let vertical_stretch = GyroflowPluginBase::get_vertical_stretch(params);
+        if squeeze <= 1.001 && vertical_stretch <= 1.001 { return None; }
+        let (clip_w, clip_h) = (self.original_video_size.0 as f64, self.original_video_size.1 as f64);
+        let (tl_w, tl_h) = (self.timeline_size.0 as f64, self.timeline_size.1 as f64);
+        if !(clip_w > 0.0 && clip_h > 0.0 && tl_w > 0.0 && tl_h > 0.0) { return None; }
+        // Undo the output quarter turn, then undo the desqueeze. The result is in recorded coordinates, not host buffers
         let rotation = params.get_f64(Params::Rotation).unwrap_or_default();
-        let border = if squeeze > 1.001 || vertical_stretch > 1.001 {
-            let clip_w = self.original_video_size.0 as f64;
-            let clip_h = self.original_video_size.1 as f64;
-            let tl_w = self.timeline_size.0 as f64;
-            let tl_h = self.timeline_size.1 as f64;
-            if clip_w > 0.0 && clip_h > 0.0 && tl_w > 0.0 && tl_h > 0.0 {
-                // Undo the output quarter turn, then undo the desqueeze. The
-                // result is expressed in recorded coordinates, not host buffers.
-                let timeline_aspect = if GyroflowPluginBase::is_quarter_turn(rotation) { tl_h / tl_w } else { tl_w / tl_h };
-                let source_aspect = timeline_aspect * vertical_stretch / squeeze;
-                let region_w = (clip_h * source_aspect).min(clip_w);
-                let region_h = (region_w / source_aspect).min(clip_h);
-                Some(serde_json::json!({
-                    "x": (clip_w - region_w) / 2.0,
-                    "y": (clip_h - region_h) / 2.0,
-                    "w": region_w,
-                    "h": region_h,
-                    "squeeze": squeeze,
-                    "vertical_stretch": vertical_stretch,
-                }))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let timeline_aspect = if GyroflowPluginBase::is_quarter_turn(rotation) { tl_h / tl_w } else { tl_w / tl_h };
+        let source_aspect = timeline_aspect * vertical_stretch / squeeze;
+        let region_w = (clip_h * source_aspect).min(clip_w);
+        let region_h = (region_w / source_aspect).min(clip_h);
+        Some((region_w, region_h))
+    }
+
+    /// The timeline window (`squeeze_region`) as fractions of the clip frame's width and height after Rotation, when
+    /// the instance stabilizes to it (`crop_to_timeline_window`): the auto zoom only has to keep that part filled, the
+    /// rest of the clip is outside the timeline once it's de-squeezed
+    pub fn timeline_window(&self, params: &dyn GyroflowPluginParams) -> Option<(f64, f64)> {
+        if !self.crop_to_timeline_window { return None; }
+        let (region_w, region_h) = self.squeeze_region(params)?;
+        let (fw, fh) = (region_w / self.original_video_size.0 as f64, region_h / self.original_video_size.1 as f64);
+        let window = if GyroflowPluginBase::is_quarter_turn(params.get_f64(Params::Rotation).unwrap_or_default()) { (fh, fw) } else { (fw, fh) };
+        (window.0 < 0.999 || window.1 < 0.999).then_some(window)
+    }
+
+    /// The centered part of `rect`, the clip in the output buffer, the stabilized image is drawn into
+    /// (`timeline_window`), or all of it
+    pub fn timeline_window_rect(&self, params: &dyn GyroflowPluginParams, rect: (usize, usize, usize, usize)) -> (usize, usize, usize, usize) {
+        let Some((fw, fh)) = self.timeline_window(params) else { return rect; };
+        let (x, y, w, h) = rect;
+        let ww = ((w as f64 * fw).round() as usize).clamp(1, w.max(1));
+        let wh = ((h as f64 * fh).round() as usize).clamp(1, h.max(1));
+        (x + (w - ww) / 2, y + (h - wh) / 2, ww, wh)
+    }
+
+    /// Centered source-pixel crop that de-squeezes and turns to the timeline
+    /// aspect. Both stretch axes refer to recorded pixels, before Rotation.
+    /// Published as metadata; with `crop_to_timeline_window` the zoom also fits it.
+    pub fn update_squeeze_border(&self, params: &mut dyn GyroflowPluginParams) {
+        let border = self.squeeze_region(params).map(|(region_w, region_h)| {
+            let (clip_w, clip_h) = (self.original_video_size.0 as f64, self.original_video_size.1 as f64);
+            serde_json::json!({
+                "x": (clip_w - region_w) / 2.0,
+                "y": (clip_h - region_h) / 2.0,
+                "w": region_w,
+                "h": region_h,
+                "squeeze": GyroflowPluginBase::get_squeeze(params),
+                "vertical_stretch": GyroflowPluginBase::get_vertical_stretch(params),
+            })
+        });
         let value = border.map(|v| v.to_string()).unwrap_or_default();
         // Idempotent write: update_loaded_state can be reached from the render
         // path (via set_status), so avoid touching the param when unchanged.
@@ -833,7 +860,12 @@ impl GyroflowPluginBaseInstance {
     /// when it has a size of its own, and the plugin's output size otherwise
     pub fn output_size_for(&self, params: &dyn GyroflowPluginParams, video_size: (usize, usize), input_rotation: f64, out_size: (usize, usize)) -> (usize, usize) {
         let size = if self.keep_clip_frame(params, video_size, input_rotation, out_size) {
-            GyroflowPluginBase::rotated_size(video_size, input_rotation)
+            let (w, h) = GyroflowPluginBase::rotated_size(video_size, input_rotation);
+            // Stabilized to the part the timeline shows (see `timeline_window_rect`), so the zoom fits that
+            match self.timeline_window(params) {
+                Some((fw, fh)) => (((w as f64 * fw).round() as usize).max(1), ((h as f64 * fh).round() as usize).max(1)),
+                None => (w, h),
+            }
         } else if self.fixed_output_size && out_size.0 > 0 && out_size.1 > 0 {
             out_size
         } else {
@@ -960,6 +992,29 @@ impl GyroflowPluginBaseInstance {
         (KeyframeType::AdditionalRotationX,       Params::AdditionalYaw,          1.0),
         (KeyframeType::AdditionalRotationY,       Params::AdditionalPitch,        1.0),
     ];
+    /// How much the core understates the zoom, which the zoom limit is compared against. The core counts its fov
+    /// relative to the output width spanning the source width with the camera matrix's fx. At a quarter turn the
+    /// output's width is the recorded height, imaged with fy: with anisotropic pixels (a vertical anamorphic squeeze)
+    /// the zoom that just fills the frame then reads as fy/fx of 100%, and a limit in true zoom must be scaled by it
+    ///
+    /// The core's 100% is the fov `output_width / width`; the true one is where the stabilized window (`timeline_window`,
+    /// the whole clip without one) just fills the frame. With the window `fw x fh` of the clip after Rotation and the
+    /// virtual output `output_size_for` fitted into the turned clip by `set_output_size`, the ratio of the two is
+    /// `max(fw·r², fh) / r` at a quarter turn (r = fx/fy) and `max(fw, fh)` otherwise
+    fn zoom_limit_ratio(&self, params: &dyn GyroflowPluginParams) -> f64 {
+        let r = if self.pixel_focal_ratio.is_finite() && self.pixel_focal_ratio > 0.0 { self.pixel_focal_ratio } else { 1.0 };
+        let (fw, fh) = self.timeline_window(params).unwrap_or((1.0, 1.0));
+        let ratio = if GyroflowPluginBase::is_quarter_turn(params.get_f64(Params::Rotation).unwrap_or_default()) { (fw * r * r).max(fh) / r } else { fw.max(fh) };
+        if ratio.is_finite() && ratio > 0.0 { ratio } else { 1.0 }
+    }
+
+    /// The value the stabilization gets for parameter value `v` of keyframe type `typ`
+    fn cached_value(typ: &KeyframeType, v: f64, scale: f64, offset: f64) -> f64 {
+        let value = v / scale + offset;
+        // The core takes a zoom limit of 50% or less as no limit at all: one the scaling took there stays a limit
+        if *typ == KeyframeType::MaxZoom && v > 50.0 { value.max(50.001) } else { value }
+    }
+
     pub fn cache_keyframes(&mut self, params: &dyn GyroflowPluginParams, use_gyroflows_keyframes: bool, num_frames: usize, fps: f64) {
         let mut mgr = KeyframeManager::new();
         // Vertical clips get their quarter-turn rotation both as the input and the video rotation, and come out upside
@@ -969,8 +1024,10 @@ impl GyroflowPluginBaseInstance {
             let video_rot = params.get_f64(Params::Rotation).unwrap_or(0.0).rem_euclid(360.0);
             if GyroflowPluginBase::is_quarter_turn(input_rot) && (video_rot - input_rot).abs() < 1.0 { 180.0 } else { 0.0 }
         };
+        let zoom_limit_ratio = self.zoom_limit_ratio(params);
         for (typ, param, scale) in Self::KEYFRAMABLE_PARAMS {
             let offset = if typ == KeyframeType::LockHorizonRoll { horizon_roll_offset } else { 0.0 };
+            let scale = if typ == KeyframeType::MaxZoom { scale * zoom_limit_ratio } else { scale };
             if params.is_keyframed(param) {
                 log::info!("param: {:?} is keyframed, cache_keyframes_every_frame: {}", param, self.cache_keyframes_every_frame);
                 if self.cache_keyframes_every_frame { // Query every frame
@@ -979,7 +1036,7 @@ impl GyroflowPluginBaseInstance {
                         let timestamp_us = ((time / fps * 1_000_000.0)).round() as i64;
 
                         if let Ok(v) = params.get_f64_at_time(param, TimeType::FrameOrMicrosecond((Some(time), Some(timestamp_us)))) {
-                            mgr.set(&typ, timestamp_us, v / scale + offset);
+                            mgr.set(&typ, timestamp_us, Self::cached_value(&typ, v, scale, offset));
                         }
                     }
                 } else {
@@ -994,13 +1051,13 @@ impl GyroflowPluginBaseInstance {
                             TimeType::FrameOrMicrosecond((None, None)) => unreachable!(),
                         };
 
-                        mgr.set(&typ, timestamp_us, v / scale + offset);
+                        mgr.set(&typ, timestamp_us, Self::cached_value(&typ, v, scale, offset));
                     }
                 }
             } else {
                 log::info!("param: {:?} NOT keyframed", param);
                 if let Ok(v) = params.get_f64(param) {
-                    mgr.set(&typ, 0, v / scale + offset);
+                    mgr.set(&typ, 0, Self::cached_value(&typ, v, scale, offset));
                 }
             }
         }
@@ -2282,6 +2339,83 @@ mod tests {
     }
 
     #[test]
+    fn anamorphic_stabilizes_to_the_timeline_window() {
+        // Vertical 1.5x: 3840x2160 recorded, turned to 2160x3840, de-squeezed to 3240x3840 after the effect, of which a
+        // 2880x3840 timeline shows the middle 2880: 1920 of the clip's 2160 columns
+        let mut vparams = params();
+        vparams.set_f64(Params::InputVerticalStretch, 1.5).unwrap();
+        vparams.set_f64(Params::Rotation, 270.0).unwrap();
+        let mut inst = GyroflowPluginBaseInstance { original_video_size: (3840, 2160), timeline_size: (2880, 3840), fixed_output_size: true, crop_to_timeline_window: true, ..Default::default() };
+        let (fw, fh) = inst.timeline_window(&vparams).unwrap();
+        assert!((fw - 1920.0 / 2160.0).abs() < 1e-9 && fh == 1.0, "{fw} {fh}");
+        assert_eq!(inst.timeline_window_rect(&vparams, (360, 0, 2160, 3840)), (480, 0, 1920, 3840));
+        assert_eq!(inst.output_size_for(&vparams, (3840, 2160), 270.0, (2880, 3840)), (1920, 3840));
+        inst.pixel_focal_ratio = 1.5;
+        assert_eq!(inst.output_size_for(&vparams, (3840, 2160), 270.0, (2880, 3840)), (4320, 3840));
+        // A timeline as wide as the de-squeezed clip shows all of it
+        inst.timeline_size = (3240, 3840);
+        assert_eq!(inst.timeline_window(&vparams), None);
+        assert_eq!(inst.timeline_window_rect(&vparams, (0, 0, 3240, 3840)), (0, 0, 3240, 3840));
+
+        // Horizontal 1.5x in 16:9: 5760x2160 de-squeezed, the timeline shows 3840 of it, 2560 recorded columns
+        let mut hparams = self::params();
+        hparams.set_i32(Params::SqueezeRatio, 4).unwrap();
+        let inst = GyroflowPluginBaseInstance { original_video_size: (3840, 2160), timeline_size: (1920, 1080), fixed_output_size: true, crop_to_timeline_window: true, ..Default::default() };
+        assert_eq!(inst.timeline_window_rect(&hparams, (0, 0, 1920, 1080)), (320, 0, 1280, 1080));
+        assert_eq!(inst.output_size_for(&hparams, (3840, 2160), 0.0, (1920, 1080)), (2560, 2160));
+        // Hosts that don't pass the rect keep the whole clip frame
+        let inst = GyroflowPluginBaseInstance { crop_to_timeline_window: false, ..inst };
+        assert_eq!(inst.timeline_window(&hparams), None);
+        assert_eq!(inst.output_size_for(&hparams, (3840, 2160), 0.0, (1920, 1080)), (3840, 2160));
+    }
+
+    #[test]
+    fn quarter_turn_anamorphic_zoom_limit_is_in_true_zoom() {
+        let max_zoom = |inst: &GyroflowPluginBaseInstance| inst.keyframable_params.read().cached_keyframes.value_at_video_timestamp(&KeyframeType::MaxZoom, 0.0).unwrap();
+        let mut params = params();
+        let mut inst = GyroflowPluginBaseInstance { pixel_focal_ratio: 1.5, ..Default::default() };
+        for (rotation, limit, expected) in [
+            (270.0, 130.0, 130.0 / 1.5), (90.0, 130.0, 130.0 / 1.5), (-90.0, 300.0, 200.0),
+            // No quarter turn: the core's zoom is the true one, anisotropic pixels or not
+            (0.0, 130.0, 130.0), (180.0, 130.0, 130.0),
+            // A limit stays a limit, and no limit stays none
+            (270.0, 60.0, 50.001), (270.0, 0.0, 0.0),
+        ] {
+            params.set_f64(Params::Rotation, rotation).unwrap();
+            params.set_f64(Params::ZoomLimit, limit).unwrap();
+            inst.cache_keyframes(&params, false, 24, 24.0);
+            assert!((max_zoom(&inst) - expected).abs() < 1e-9, "rotation {rotation}, limit {limit}: {}", max_zoom(&inst));
+        }
+        inst.pixel_focal_ratio = 1.0;
+        params.set_f64(Params::Rotation, 270.0).unwrap();
+        params.set_f64(Params::ZoomLimit, 130.0).unwrap();
+        inst.cache_keyframes(&params, false, 24, 24.0);
+        assert_eq!(max_zoom(&inst), 130.0);
+        // fx < fy (a horizontal squeeze turned upright): the virtual output fits by height, the core overstates instead
+        inst.pixel_focal_ratio = 1.0 / 1.5;
+        inst.cache_keyframes(&params, false, 24, 24.0);
+        assert!((max_zoom(&inst) - 130.0 / 1.5).abs() < 1e-9, "{}", max_zoom(&inst));
+
+        // Stabilized to the timeline window: the core's 100% is the whole clip, the true one the window
+        let mut wparams = self::params();
+        wparams.set_f64(Params::InputVerticalStretch, 1.5).unwrap();
+        wparams.set_f64(Params::Rotation, 270.0).unwrap();
+        wparams.set_f64(Params::ZoomLimit, 130.0).unwrap();
+        let mut inst = GyroflowPluginBaseInstance { original_video_size: (3840, 2160), timeline_size: (2880, 3840), crop_to_timeline_window: true, pixel_focal_ratio: 1.5, ..Default::default() };
+        inst.cache_keyframes(&wparams, false, 24, 24.0);
+        let fw = 1920.0 / 2160.0;
+        assert!((max_zoom(&inst) - 130.0 / (fw * 1.5)).abs() < 1e-9, "{}", max_zoom(&inst));
+        // Horizontal 1.5x in 16:9, not turned: the window is 2/3 of the clip's width and the virtual output fits by its
+        // height, so the core's 100% is already the window's
+        let mut hparams = self::params();
+        hparams.set_i32(Params::SqueezeRatio, 4).unwrap();
+        hparams.set_f64(Params::ZoomLimit, 130.0).unwrap();
+        let mut inst = GyroflowPluginBaseInstance { original_video_size: (3840, 2160), timeline_size: (1920, 1080), crop_to_timeline_window: true, pixel_focal_ratio: 1.0 / 1.5, ..Default::default() };
+        inst.cache_keyframes(&hparams, false, 24, 24.0);
+        assert!((max_zoom(&inst) - 130.0).abs() < 1e-9, "{}", max_zoom(&inst));
+    }
+
+    #[test]
     #[ignore = "requires GYROFLOW_VERTICAL_SAMPLE pointing to the supplied Sony clip"]
     fn sony_vertical_sample_cpu_edges() {
         let mut params = params();
@@ -2292,6 +2426,8 @@ mod tests {
         params.set_f64(Params::ZoomLimit, 130.0).unwrap();
         params.set_i32(Params::Zooming, 1).unwrap();
         params.set_i32(Params::Interpolation, 2).unwrap();
+        // Unset test params read as 0, and a video speed of 0 leaves no correction to test the edges with
+        params.set_f64(Params::VideoSpeed, 100.0).unwrap();
         let mut inst = GyroflowPluginBaseInstance {
             fixed_output_size: true,
             framebuffer_inverted: true,

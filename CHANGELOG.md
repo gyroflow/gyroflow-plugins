@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- OpenFX: anamorphic clips are now stabilized to the part of the clip the timeline shows once de-squeezed (the SqueezeBorder region), not the whole de-squeezed frame. The auto zoom fits that window and the stabilized image is drawn into it, so a vertical 1.5x clip in a 2880x3840 timeline is no longer zoomed about 12% more than needed, and raising FOV crops right away. This restores the border-fitted zoom lost when the plugin moved to the upstream core.
+- Fixed the zoom limit on 90/270-degree anamorphic footage: the core measured zoom against the recorded horizontal focal length, understating it by fx/fy (about 1.5x on a 1.5x vertical squeeze), so a 130% limit allowed close to 200%. The limit passed to the core is now scaled to the true zoom of the stabilized window, for either squeeze axis, and stays a limit (above the core's 50% "off" threshold). The Sony vertical sample test now sets the video speed, so it checks edges with real stabilization correction.
+
 - Removed the cross-axis stretch disabling change after reported Resolve crashes, restoring the known-good independent controls. Restored the package version to 2.2.7 and kept the library/short name Gyroflow (Omni); only the long effect label includes the version. Future version changes require an explicit request.
 
 - Fixed implicit anamorphic scaling on 90/270-degree footage after disabling stretch: the virtual output aspect now compensates the effective recorded-pixel focal ratio, while the host source/output rectangles retain their squeezed proportions. This shares the corrected geometry with rendering and zoom calculation. Added pixel-proportion regressions for both anamorphic axes at all quarter turns, with lens correction at 0% and 100%, alongside border-sampling tests with Disable stretch both on and off.

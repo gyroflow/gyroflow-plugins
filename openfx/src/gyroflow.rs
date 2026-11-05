@@ -307,7 +307,8 @@ impl Execute for GyroflowPlugin {
                 };
                 GyroflowPluginBaseInstance::ensure_output_aspect(&stab, output_size);
                 let src_rect = geometry.src_rect;
-                let mut out_rect = geometry.out_rect;
+                // Of an anamorphic clip, only the part the timeline shows once de-squeezed (the output size has its aspect)
+                let mut out_rect = if is_vegas { geometry.out_rect } else { geometry.out_rect.map(|r| instance_data.plugin.timeline_window_rect(&instance_data.params, r)) };
 
                 let out_scale = output_image.get_render_scale()?;
                 if (out_scale.x != 1.0 || out_scale.y != 1.0) && !in_args.get_opengl_enabled().unwrap_or_default() {
@@ -523,6 +524,8 @@ impl Execute for GyroflowPlugin {
                         fixed_output_size:           false,
                         last_out_size:               (0, 0),
                         pixel_focal_ratio:           1.0,
+                        // Resolve shows the timeline's part of the de-squeezed clip: stabilize to that
+                        crop_to_timeline_window:     true,
                         has_motion:                  false,
                         keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                             use_gyroflows_keyframes: param_set.parameter::<Bool>("UseGyroflowsKeyframes")?.get_value()?,
