@@ -1263,6 +1263,17 @@ impl GyroflowPluginBaseInstance {
         Ok(())
     }
 
+    /// Update the framing once the host supplies a timeline render. The first
+    /// buffer on project open can be a thumbnail with a different aspect.
+    pub fn update_timeline_size(&mut self, params: &dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, size: (usize, usize)) {
+        let window = self.timeline_window(params);
+        self.timeline_size = size;
+        if self.timeline_window(params) != window {
+            // Both the output aspect and the cached zoom-limit values depend on the window.
+            self.clear_stab(manager_cache);
+        }
+    }
+
     pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
         let path = params.get_string(Params::ProjectPath)?;
         if path.is_empty() {
@@ -1283,6 +1294,8 @@ impl GyroflowPluginBaseInstance {
             // First used by this instance: its own, set up before the instance was restored, or shared with the instances
             // copied with it, which set it up
             if !self.managers.contains(&key) {
+                self.original_video_size = stab.params.read().size;
+                self.update_squeeze_border(params);
                 if self.ever_changed {
                     self.configure(params, &stab, out_size, false)?;
                 } else if !self.agrees_with(params, &stab, out_size) {
@@ -2539,6 +2552,55 @@ mod tests {
         let mut restored = GyroflowPluginBaseInstance::default();
         let stab = restored.stab_manager(&mut params, &cache, (1920, 1080), false).unwrap();
         assert_eq!(stab.params.read().adaptive_zoom_window, -1.0);
+    }
+
+    #[test]
+    fn reopened_anamorphic_effect_recovers_from_thumbnail_framing() {
+        let cache = cache();
+        let mut params = params();
+        params.set_bool(Params::IncludeProjectData, true).unwrap();
+        params.set_string(Params::ProjectData, &serde_json::json!({
+            "version": 4,
+            "video_info": { "width": 3840, "height": 2160, "rotation": 270.0, "fps": 24.0, "duration_ms": 1000.0, "num_frames": 24 },
+            "calibration_data": serde_json::from_str::<serde_json::Value>(include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json")).unwrap(),
+        }).to_string()).unwrap();
+        params.set_f64(Params::Rotation, 270.0).unwrap();
+        params.set_f64(Params::InputRotation, 270.0).unwrap();
+        params.set_f64(Params::InputVerticalStretch, 1.5).unwrap();
+        params.set_f64(Params::ZoomLimit, 130.0).unwrap();
+        params.set_i32(Params::Zooming, 1).unwrap();
+
+        let restored_instance = || GyroflowPluginBaseInstance {
+            fixed_output_size: true,
+            crop_to_timeline_window: true,
+            anamorphic_adjust_size: false,
+            reload_values_from_project: false,
+            ..Default::default()
+        };
+        let mut restored = restored_instance();
+        let thumbnail = restored.stab_manager(&mut params, &cache, (80, 161), false).unwrap();
+        let thumbnail_aspect = thumbnail.params.read().output_size;
+        let thumbnail_limit = restored.zoom_limit_ratio(&params);
+        assert!(restored.timeline_window(&params).is_some());
+
+        let timeline = (3240, 3840);
+        restored.update_timeline_size(&params, &cache, timeline);
+        let stab = restored.stab_manager(&mut params, &cache, timeline, false).unwrap();
+        let aspect = stab.params.read().output_size;
+        assert_ne!(thumbnail_aspect, aspect);
+        assert_ne!(thumbnail_limit, restored.zoom_limit_ratio(&params));
+        assert_eq!(restored.timeline_window(&params), None);
+        let border: serde_json::Value = serde_json::from_str(&params.get_string(Params::SqueezeBorder).unwrap()).unwrap();
+        assert_eq!((border["w"].as_f64(), border["h"].as_f64()), (Some(3840.0), Some(2160.0)));
+        assert_eq!(params.get_i32(Params::Zooming).unwrap(), 1);
+
+        // Another restored instance can attach to the manager without reimporting the project.
+        let mut shared = restored_instance();
+        params.set_string(Params::SqueezeBorder, "{}").unwrap();
+        let cached = shared.stab_manager(&mut params, &cache, timeline, false).unwrap();
+        assert!(Arc::ptr_eq(&stab, &cached));
+        assert_eq!(shared.original_video_size, (3840, 2160));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&params.get_string(Params::SqueezeBorder).unwrap()).unwrap(), border);
     }
 
     #[test]

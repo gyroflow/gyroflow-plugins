@@ -126,7 +126,7 @@ struct InstanceData {
 }
 
 impl InstanceData {
-    fn stab_manager(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, output_rect: RectI, loading_pending_video_file: bool) -> Result<Arc<StabilizationManager>> {
+    fn stab_manager(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, output_rect: RectI, thumbnail: bool, loading_pending_video_file: bool) -> Result<Arc<StabilizationManager>> {
         /*let source_rect = self.source_clip.get_region_of_definition(0.0)?;
         let mut source_rect = RectI {
             x1: source_rect.x1 as i32,
@@ -138,7 +138,16 @@ impl InstanceData {
             source_rect = self.source_clip.get_image(0.0)?.get_bounds()?;
         }
         let in_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize);*/
-        let out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize);
+        let mut out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize);
+        if self.plugin.fixed_output_size {
+            if thumbnail || out_size.0.max(out_size.1) < 320 {
+                if self.plugin.last_out_size != (0, 0) {
+                    out_size = self.plugin.last_out_size;
+                }
+            } else if out_size.0 > 0 && out_size.1 > 0 && self.plugin.timeline_size != out_size {
+                self.plugin.update_timeline_size(&self.params, manager_cache, out_size);
+            }
+        }
 
         self.plugin.stab_manager(&mut self.params, manager_cache, out_size, loading_pending_video_file).map_err(|e| {
             log::error!("plugin.stab_manager error: {e:?}");
@@ -194,7 +203,9 @@ impl Execute for GyroflowPlugin {
 
                 let output_rect: RectI = output_image.get_region_of_definition()?;
 
-                let stab = instance_data.stab_manager(&self.gyroflow_plugin.manager_cache, output_rect, loading_pending_video_file)?;
+                let thumbnail = instance_data.plugin.fixed_output_size
+                    && <Bool as RawGetter<_>>::get_at(in_args, c"OfxImageEffectPropThumbnailRender".as_ptr(), 0).unwrap_or_default();
+                let stab = instance_data.stab_manager(&self.gyroflow_plugin.manager_cache, output_rect, thumbnail, loading_pending_video_file)?;
 
                 if !instance_data.supports_output_size {
                     let _ = instance_data.params.output_width.set_enabled(false);
