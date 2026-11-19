@@ -126,6 +126,15 @@ impl GyroflowPluginBase {
         let json = serde_json::from_str::<serde_json::Value>(data).ok()?;
         json.get("videofile").and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(|x| x.to_string())
     }
+    /// The output size the project `json` exports at (its "output" section), `None` when it doesn't say. The core only
+    /// keeps the aspect of it: `StabilizationManager::set_output_size` fits every size to the video, so a 1496x2660
+    /// export of a vertical 4K clip is 2160x3840 in `params.output_size` after the project loads
+    pub fn project_output_size(json: &serde_json::Value) -> Option<(usize, usize)> {
+        let output = json.get("output")?;
+        let w = output.get("output_width")?.as_u64()? as usize;
+        let h = output.get("output_height")?.as_u64()? as usize;
+        (w > 0 && h > 0).then_some((w, h))
+    }
 
     /// The settings of a project, as the preset the app makes of it by default (see `SettingsSelector.qml` in the app).
     /// The project's video file, motion data, sync points and trim belong to its clip and don't come along
@@ -1091,6 +1100,9 @@ impl GyroflowPluginBaseInstance {
             }
             Self::setup_renderer(params, &stab);
 
+            // The output size the project exports at, for the Output size parameters: the core keeps it fitted to the video
+            let mut project_output_size: Option<(usize, usize)> = None;
+
             if !path.ends_with(".gyroflow") {
                 let url = filesystem::path_to_url(&path);
                 // A file that can't be opened (moved, or on a volume that isn't mounted) is one that can't be loaded
@@ -1131,10 +1143,11 @@ impl GyroflowPluginBaseInstance {
                         if !embedded_data.is_empty() {
                             log::warn!("Failed to load {path}: {e:?}, loading the embedded project data");
                             let mut is_preset = false;
-                            stab.import_gyroflow_data(embedded_data.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
+                            let project = stab.import_gyroflow_data(embedded_data.as_bytes(), true, None, |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
                                 self.update_loaded_state(params, false);
                                 format!("load_gyro_data error: {e}")
                             })?;
+                            project_output_size = GyroflowPluginBase::project_output_size(&project);
                         } else {
                             log::error!("An error occured: {e:?}");
                             self.update_loaded_state(params, false);
@@ -1163,10 +1176,11 @@ impl GyroflowPluginBaseInstance {
                     }
                 };
                 let mut is_preset = false;
-                stab.import_gyroflow_data(project_data.as_bytes(), true, Some(&filesystem::path_to_url(&path)), |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
+                let project = stab.import_gyroflow_data(project_data.as_bytes(), true, Some(&filesystem::path_to_url(&path)), |_|(), Arc::new(AtomicBool::new(false)), &mut is_preset, true).map_err(|e| {
                     self.update_loaded_state(params, false);
                     format!("load_gyro_data error: {e}")
                 })?;
+                project_output_size = GyroflowPluginBase::project_output_size(&project);
                 // Loaded with "Load preset/lens profile" over the project
                 Self::apply_embedded_presets(params, &stab, true);
                 params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
@@ -1188,7 +1202,9 @@ impl GyroflowPluginBaseInstance {
                 stab.params.write().calculate_ramped_timestamps(&stab.keyframes.read(), false, true);
                 let gf_params = stab.params.read();
                 self.original_video_size = gf_params.size;
-                self.original_output_size = gf_params.output_size;
+                // The project's own export size when it has one, as the preset's is above (`preset_output_size`): what
+                // `params.output_size` holds is that size fitted to the video, the clip's full size for an export of its aspect
+                self.original_output_size = project_output_size.unwrap_or(gf_params.output_size);
                 self.num_frames = gf_params.frame_count;
                 self.fps = gf_params.fps;
                 let loaded = gf_params.duration_ms > 0.0;
@@ -1833,6 +1849,14 @@ mod tests {
 
     fn cache() -> Cache {
         Mutex::new(LruCache::new(std::num::NonZeroUsize::new(8).unwrap()))
+    }
+    #[test]
+    fn project_output_size_is_the_export_size() {
+        let project = serde_json::json!({ "video_info": { "width": 3840, "height": 2160, "rotation": 90.0 }, "output": { "output_width": 1496, "output_height": 2660 } });
+        assert_eq!(GyroflowPluginBase::project_output_size(&project), Some((1496, 2660)));
+        assert_eq!(GyroflowPluginBase::project_output_size(&serde_json::json!({ "output": { "output_width": 0, "output_height": 2660 } })), None);
+        assert_eq!(GyroflowPluginBase::project_output_size(&serde_json::json!({ "output": { "interpolation": "Lanczos4" } })), None);
+        assert_eq!(GyroflowPluginBase::project_output_size(&serde_json::json!({ "videofile": "" })), None);
     }
     fn params() -> TestParams {
         let mut params = TestParams::default();
