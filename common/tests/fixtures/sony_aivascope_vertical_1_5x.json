@@ -1,0 +1,71 @@
+{
+  "name": "Sony_ILCE-9M3_Aivascope 1.5x Helios 44-2 Vertical__4k_8by7_3840x3240-23.98fps",
+  "note": "",
+  "calibrated_by": "Bruce",
+  "camera_brand": "Sony",
+  "camera_model": "ILCE-9M3",
+  "lens_model": "Aivascope 1.5x Helios 44-2 Vertical",
+  "camera_setting": "",
+  "calib_dimension": {
+    "w": 3840,
+    "h": 3240
+  },
+  "orig_dimension": {
+    "w": 3840,
+    "h": 3240
+  },
+  "output_dimension": {
+    "w": 3840,
+    "h": 3240
+  },
+  "frame_readout_time": null,
+  "frame_readout_direction": null,
+  "gyro_lpf": null,
+  "input_horizontal_stretch": 1.0,
+  "input_vertical_stretch": 1.5,
+  "num_images": 15,
+  "fps": 23.976025,
+  "crop": null,
+  "official": false,
+  "asymmetrical": false,
+  "fisheye_params": {
+    "RMS_error": 1.610784293297806,
+    "camera_matrix": [
+      [
+        5602.912343299746,
+        0.0,
+        2613.7015556237784
+      ],
+      [
+        0.0,
+        5538.6619884994325,
+        1707.8835939560943
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "distortion_coeffs": [
+      0.01595324698635381,
+      1.9107469351056763,
+      -6.787258948780984,
+      7.719022299614336
+    ],
+    "radial_distortion_limit": null
+  },
+  "identifier": "sony-ilce-9m3-nisiathena35-32.00mm-3840x2160@23976",
+  "calibrator_version": "1.6.3",
+  "date": "2026-11-04",
+  "compatible_settings": [],
+  "sync_settings": null,
+  "rig": null,
+  "distortion_model": null,
+  "digital_lens": null,
+  "digital_lens_params": null,
+  "interpolations": null,
+  "focal_length": 58.0,
+  "crop_factor": null,
+  "global_shutter": true
+}

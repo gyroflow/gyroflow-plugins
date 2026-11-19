@@ -184,21 +184,15 @@ impl StoredParams {
         for p in [Params::InputRotation, Params::Rotation, Params::OutputWidth, Params::OutputHeight] {
             self.pending_params_f64.remove(&p);
         }
-        // Of the clip as well, the host sets them for this one (see `on_clip`). The sequence size is kept until then, it
-        // says whether the output size followed the sequence's
-        self.pending_params_bool.remove(&Params::DisableStretch);
+        // The sequence size is kept until the host sets it for this clip (see `on_clip`): it says whether the output size
+        // followed the sequence's
     }
 
     /// The effect's clip is new to it: it's set up on it (`first`), or the effect was copied to it (see `follow_media`).
-    /// The clip is in a sequence (or comp) of `sequence_size`, and its media is `anamorphic` or not: the output size
-    /// follows the sequence's unless the user set one, and Disable stretch follows the media's pixel aspect, which the
-    /// host stretches already
-    pub fn on_clip(&mut self, sequence_size: (usize, usize), anamorphic: bool, first: bool) {
+    /// The clip is in a sequence (or comp) of `sequence_size`: the output size follows the sequence's unless the user set one
+    pub fn on_clip(&mut self, sequence_size: (usize, usize), first: bool) {
         if first || self.sequence_size != (0, 0) {
             self.sequence_size = sequence_size;
-        }
-        if anamorphic || !first {
-            self.pending_params_bool.insert(Params::DisableStretch, anamorphic);
         }
     }
 
@@ -313,7 +307,6 @@ struct LayerClip {
     missing: bool,
     /// Of the several videos of a precomp, the first: which one is the effect's can't be told
     ambiguous: bool,
-    item: Option<ae::aegp::Item>,
 }
 impl LayerClip {
     /// The clip of the effect on `layer`: its footage, or in the comp it shows (a precomp), the footage of the layer of
@@ -328,7 +321,6 @@ impl LayerClip {
                 trim: Some((in_point.into(), out_point.into())),
                 missing: item.flags().is_ok_and(|x| x.contains(ae::aegp::ItemFlags::MISSING)),
                 ambiguous: false,
-                item: Some(item),
             })
         };
         let item = layer.source_item()?;
@@ -360,10 +352,6 @@ impl LayerClip {
             }
             _ => Ok(Self::default()),
         }
-    }
-    /// Whether its pixels aren't square, which the host stretches
-    fn anamorphic(&self) -> bool {
-        self.item.as_ref().and_then(|x| x.pixel_aspect_ratio().ok()).is_some_and(|x| (f64::from(x) * 100.0).round() != 100.0)
     }
 }
 
@@ -403,6 +391,8 @@ impl CrossThreadInstance {
             anamorphic_adjust_size:         false,
             fixed_output_size:              false,
             last_out_size:                  (0, 0),
+            pixel_focal_ratio:              1.0,
+            crop_to_timeline_window:        false,
             keyframable_params: Arc::new(RwLock::new(KeyframableParams {
                 use_gyroflows_keyframes:  false,
                 cached_keyframes:         KeyframeManager::default()
@@ -722,7 +712,7 @@ impl AdobePluginGlobal for Plugin {
 
         match cmd {
             ae::Command::About => {
-                out_data.set_return_msg(concat!("Gyroflow, v", env!("CARGO_PKG_VERSION"), "\nCopyright 2024 AdrianEddy\rGyroflow plugin."));
+                out_data.set_return_msg(concat!("Gyroflow (Omni), v", env!("CARGO_PKG_VERSION"), "\nCopyright 2024 AdrianEddy\rGyroflow (Omni) plugin."));
             }
             ae::Command::GlobalSetup => {
                 gyroflow_core::gpu::initialize_contexts();
@@ -1040,7 +1030,7 @@ impl CrossThreadInstance {
                 let layer = in_data.effect().layer();
                 let clip = layer.as_ref().ok().and_then(|x| LayerClip::of(x, "").ok()).unwrap_or_default();
                 let sequence_size = layer.and_then(|x| x.parent_comp()?.item()?.dimensions()).map(|x| (x.0 as usize, x.1 as usize));
-                stored.on_clip(sequence_size.unwrap_or((in_data.width() as _, in_data.height() as _)), clip.anamorphic(), true);
+                stored.on_clip(sequence_size.unwrap_or((in_data.width() as _, in_data.height() as _)), true);
                 let footage_path = clip.media;
 
                 if !footage_path.is_empty() {
@@ -1083,7 +1073,7 @@ impl CrossThreadInstance {
                         let change = _self.follow_media(&clip.media, || (params.get_string(Params::ProjectPath).unwrap_or_default(), params.get_string(Params::ProjectData).unwrap_or_default()));
                         if change == MediaChange::OtherClip {
                             let sequence_size = layer.and_then(|x| x.parent_comp()?.item()?.dimensions()).map(|x| (x.0 as usize, x.1 as usize));
-                            stored.write().on_clip(sequence_size.unwrap_or((in_data.width() as _, in_data.height() as _)), clip.anamorphic(), false);
+                            stored.write().on_clip(sequence_size.unwrap_or((in_data.width() as _, in_data.height() as _)), false);
                         }
                     }
 
@@ -1391,19 +1381,16 @@ mod tests {
     #[test]
     fn a_clip_new_to_the_effect_sets_what_follows_it() {
         let mut s = StoredParams::default();
-        // Set up on a square-pixel clip of a 4K sequence
-        s.on_clip((3840, 2160), false, true);
+        // Set up on a clip of a 4K sequence
+        s.on_clip((3840, 2160), true);
         assert_eq!(s.sequence_size, (3840, 2160));
-        assert!(!s.pending_params_bool.contains_key(&Params::DisableStretch));
-        // Copied to an anamorphic clip of a 1080p sequence
-        s.on_clip((1920, 1080), true, false);
+        // Copied to a clip of a 1080p sequence
+        s.on_clip((1920, 1080), false);
         assert_eq!(s.sequence_size, (1920, 1080));
-        assert_eq!(s.pending_params_bool.get(&Params::DisableStretch), Some(&true));
-        // Back to a square-pixel one, with an output size of the user's
+        // To another, with an output size of the user's
         s.sequence_size = (0, 0);
-        s.on_clip((3840, 2160), false, false);
+        s.on_clip((3840, 2160), false);
         assert_eq!(s.sequence_size, (0, 0));
-        assert_eq!(s.pending_params_bool.get(&Params::DisableStretch), Some(&false));
     }
 
     #[test]
@@ -1418,7 +1405,6 @@ mod tests {
         s.pending_params_str.insert(Params::InstanceId, s.instance_id.clone());
         s.pending_params_f64.insert(Params::Smoothness, 20.0);
         s.pending_params_f64.insert(Params::InputRotation, 90.0);
-        s.pending_params_bool.insert(Params::DisableStretch, true);
         s.sequence_size = (3840, 2160);
         s.media_fps_ticks = 1001;
         s.speed_per_frame = vec![100.0];
@@ -1434,7 +1420,6 @@ mod tests {
         assert_eq!(s.pending_params_str.get(&Params::ProjectData).map(|x| x.as_str()), Some(""));
         assert!(!s.pending_params_str.contains_key(&Params::LoadedProject));
         assert!(!s.pending_params_f64.contains_key(&Params::InputRotation));
-        assert!(!s.pending_params_bool.contains_key(&Params::DisableStretch));
         assert!(s.speed_per_frame.is_empty() && s.media_fps_ticks == 0);
         // Until the host sets it for the clip, it says the output size follows the sequence's (see `on_clip`)
         assert_eq!(s.sequence_size, (3840, 2160));

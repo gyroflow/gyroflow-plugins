@@ -1,5 +1,5 @@
 
-# Gyroflow frei0r plugin
+# Gyroflow (Omni) frei0r plugin
 
 * Works with project files exported from [Gyroflow](http://gyroflow.xyz/)
 * Allows you to apply the stabilization right in your frei0r-capable video editor

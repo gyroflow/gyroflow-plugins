@@ -77,21 +77,14 @@ impl pr::GpuFilter for PremiereGPU {
                     Ok(pr::PropertyData::String(media_path)) => media_path,
                     _ => String::new()
                 };
-                // The sequence's size and the media's pixel aspect, for a clip new to the effect (see `StoredParams::on_clip`)
-                let anamorphic = || {
-                    match (filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioNum),
-                           filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamPixelAspectRatioDen)) {
-                        (Ok(pr::PropertyData::Int32(num)), Ok(pr::PropertyData::Int32(den))) if den != 0 => ((num as f64 / den as f64) * 100.0).round() != 100.0,
-                        _ => false
-                    }
-                };
+                // The sequence's size, for a clip new to the effect (see `StoredParams::on_clip`)
                 let sequence_size = (render_params.render_width() as usize, render_params.render_height() as usize);
                 if inst.stored.read().media_file_path.is_empty() {
                     if !media_path.is_empty() {
                         let mut stored = inst.stored.write();
                         stored.pending_params_str.insert(Params::ProjectPath, GyroflowPluginBase::get_project_path(&media_path).unwrap_or(media_path.to_owned()));
                         stored.media_file_path = media_path;
-                        stored.on_clip(sequence_size, anamorphic(), true);
+                        stored.on_clip(sequence_size, true);
                     }
                     if let Ok(pr::PropertyData::Time(media_fps)) = filter.video_segment_suite.node_property(media_node.1, pr::Property::Media_StreamFrameRate) {
                         inst.stored.write().media_fps_ticks = media_fps;
@@ -123,7 +116,7 @@ impl pr::GpuFilter for PremiereGPU {
                             }
                         }
                         if change == MediaChange::OtherClip {
-                            inst.stored.write().on_clip(sequence_size, anamorphic(), false);
+                            inst.stored.write().on_clip(sequence_size, false);
                         }
                     }
                 }
@@ -181,13 +174,12 @@ impl pr::GpuFilter for PremiereGPU {
                     return Ok(());
                 }
                 let instance_id = params.get_string(Params::InstanceId).unwrap();
-                let disable_stretch = params.get_bool(Params::DisableStretch).unwrap();
 
                 let out_w = params.get_f64(Params::OutputWidth).unwrap();
                 let out_h = params.get_f64(Params::OutputHeight).unwrap();
 
-                let key = format!("{path}{disable_stretch}{instance_id}");
-                // log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, disable_stretch: {disable_stretch:?} path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
+                let key = format!("{path}{instance_id}");
+                // log::info!("PremiereGPU::render! {pixel_format:?} in: {in_frame_data:?}, out: {out_frame_data:?}, stride: {in_stride}/{out_stride}, bounds: {in_bounds:?}/{out_bounds:?}, path: {} instance_id: {instance_id:?} | time: {}", path, render_params.clip_time());
 
                 // A bin subclip has its own time domain: clip_time is relative to the subclip's
                 // start, not to the start of the master media. Media_ContentStart reports where

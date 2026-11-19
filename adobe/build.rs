@@ -21,7 +21,7 @@ fn main() {
 
     pipl::plugin_build(vec![
         Property::Kind(PIPLType::AEEffect),
-        Property::Name("Gyroflow"),
+        Property::Name("Gyroflow (Omni)"),
         Property::Category("Gyroflow"),
 
         #[cfg(target_os = "windows")]
