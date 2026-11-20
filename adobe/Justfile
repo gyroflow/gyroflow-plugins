@@ -62,7 +62,11 @@ deploy:
     /usr/libexec/PlistBuddy -c "add CFBundleVersion string $version_short" gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
     /usr/libexec/PlistBuddy -c "add CFBundleShortVersionString string $version" gyroflow-adobe-macos/Gyroflow.plugin/Contents/Info.plist
 
-    cp x86_64-apple-darwin/deploy/gyroflow_adobe.rsrc gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources/Gyroflow.rsrc
+    # pipl's build script writes the .rsrc to $OUT_DIR/../../../, which is <profile>/ up to Rust 1.99
+    # and <profile>/build/ since 1.100 (build-dir layout change). Take the newer one in case a cached target has both.
+    rsrc=$(ls -t x86_64-apple-darwin/deploy/gyroflow_adobe.rsrc x86_64-apple-darwin/deploy/build/gyroflow_adobe.rsrc 2>/dev/null | head -n1)
+    if [[ -z "$rsrc" ]]; then echo "gyroflow_adobe.rsrc not found"; exit 1; fi
+    cp "$rsrc" gyroflow-adobe-macos/Gyroflow.plugin/Contents/Resources/Gyroflow.rsrc
 
     lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_adobe.dylib -create -output gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib
     mv gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow
