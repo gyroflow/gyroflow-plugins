@@ -34,6 +34,7 @@ pub enum Params {
     Fov,
     Smoothness,
     ZoomLimit,
+    ManualZoom,
     LensCorrectionStrength,
     HorizonLockAmount,
     HorizonLockRoll,
@@ -423,6 +424,7 @@ impl GyroflowPluginBase {
             ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", opened: true, parameters: vec![
                 ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 1.0,    max: 300.0, default: 50.0 },
                 ParameterType::Slider   { id: "ZoomLimit",              label: "Zoom limit",           hint: "Zoom limit",                   min: 51.0,   max: 300.0, default: 130.0 },
+                ParameterType::Checkbox { id: "ManualZoom",             label: "Manual zoom",          hint: "Static zoom at exactly the Zoom limit value: the slider becomes the zoom level of the whole clip, and the smoothing is lowered only where the frame wouldn't fit otherwise", default: false },
                 ParameterType::Slider   { id: "LensCorrectionStrength", label: "Lens correction",      hint: "Lens correction",              min: 0.0,    max: 100.0, default: 100.0 },
                 ParameterType::Slider   { id: "HorizonLockAmount",      label: "Horizon lock",         hint: "Horizon lock amount",          min: 0.0,    max: 100.0, default: 0.0 },
                 ParameterType::Slider   { id: "HorizonLockRoll",        label: "Horizon roll",         hint: "Horizon lock roll adjustment", min: -100.0, max: 100.0, default: 0.0 },
@@ -436,7 +438,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "VideoSpeed",             label: "Video speed",          hint: "Use this slider to change video speed or keyframe it, instead of built-in speed changes in the editor", min: 0.0001, max: 1000.0, default: 100.0 },
                 ParameterType::Checkbox { id: "DisableStretch",         label: "Disable Gyroflow's stretch", hint: "If you used Input stretch in the lens profile in Gyroflow, and you de-stretched the video separately in your editor (by setting anamorphic squeeze factor), check this to disable Gyroflow's internal stretching.", default: false },
                 ParameterType::Select   { id: "IntegrationMethod",      label: "Integration method",   hint: "IMU integration method", options: vec!["None", "Complementary", "VQF", "Simple gyro", "Simple gyro + accel", "Mahony", "Madgwick"], default: "VQF" },
-                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
+                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zoom limit, manual zoom, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -661,6 +663,7 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::Fov, loaded);
         let _ = params.set_enabled(Params::Smoothness, loaded);
         let _ = params.set_enabled(Params::ZoomLimit, loaded);
+        let _ = params.set_enabled(Params::ManualZoom, loaded);
         let _ = params.set_enabled(Params::LensCorrectionStrength, loaded);
         let _ = params.set_enabled(Params::HorizonLockAmount, loaded);
         let _ = params.set_enabled(Params::HorizonLockRoll, loaded);
@@ -917,7 +920,55 @@ impl GyroflowPluginBaseInstance {
     /// The key of the stabilization the instance renders with, in `managers` and the manager cache: of the project, loaded
     /// with Disable stretch or not, for the instance id. The instances that share it share the instance id (see `ever_changed`)
     pub fn stab_key(params: &dyn GyroflowPluginParams) -> PluginResult<String> {
-        Ok(format!("{}{}{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, params.get_string(Params::InstanceId)?))
+        Ok(format!("{}{}{}{}", params.get_string(Params::ProjectPath)?, params.get_bool(Params::DisableStretch)?, Self::manual_zoom_key(params), params.get_string(Params::InstanceId)?))
+    }
+    /// The part of `stab_key` for "Manual zoom": a stabilization is loaded with it on or off, as with Disable stretch.
+    /// Empty when off (or in a host without the parameter), so the keys stay as they were
+    fn manual_zoom_key(params: &dyn GyroflowPluginParams) -> &'static str {
+        if params.get_bool(Params::ManualZoom).unwrap_or(false) { "manualzoom" } else { "" }
+    }
+    /// Whether "Manual zoom" was saved on in the loaded preset or lens profile, or in the default preset the core applies
+    /// to every newly loaded video (see "Save as default"): the `plugin_manual_zoom` flag. Saved as the flag and not as
+    /// the static zoom itself, which would stay in every clip loaded after it, with "Manual zoom" off too
+    fn has_manual_zoom_flag(params: &dyn GyroflowPluginParams) -> bool {
+        let has_flag = |d: &str| -> bool {
+            serde_json::from_str::<serde_json::Value>(d).ok()
+                .and_then(|v| v.get("plugin_manual_zoom").and_then(|v| v.as_bool()))
+                .unwrap_or(false)
+        };
+        for param_id in [Params::EmbeddedLensProfile, Params::EmbeddedPreset] {
+            if let Ok(d) = params.get_string(param_id) {
+                if !d.is_empty() && has_flag(&d) { return true; }
+            }
+        }
+        // Paths and fallback order of `StabilizationManager::load_video_file`: the first one that exists
+        let paths = [
+            gyroflow_core::settings::data_dir().join("lens_profiles").join("default.gyroflow"),
+            gyroflow_core::lens_profile_database::LensProfileDatabase::get_path().join("default.gyroflow"),
+        ];
+        for path in &paths {
+            if let Ok(d) = std::fs::read_to_string(path) {
+                return has_flag(&d);
+            }
+        }
+        false
+    }
+    /// "Manual zoom" on: a static zoom at exactly the zoom limit (`max_zoom`), as "Static zoom" + "Zoom level: Manual" in the
+    /// app. Off: the zoom mode of the project, without the manual zoom level
+    fn apply_manual_zoom(stab: &StabilizationManager, manual: bool) {
+        let mut p = stab.params.write();
+        if manual {
+            p.fixed_zoom = true;
+            p.adaptive_zoom_window = -1.0;
+            // The smoothing is lowered only where the frame doesn't fit, as the manual zoom level does in the app, unless the
+            // project set "Zoom limit lowers the smoothing of the whole clip" itself (rather than coming from before it existed)
+            if p.zoom_limit_whole_clip_from_old_file {
+                p.zoom_limit_whole_clip = false;
+                p.zoom_limit_whole_clip_from_old_file = false;
+            }
+        } else {
+            p.fixed_zoom = false;
+        }
     }
 
     /// Whether an edit of `param` changes what the instance sets up its stabilization with (see `configure`), which it
@@ -1054,6 +1105,8 @@ impl GyroflowPluginBaseInstance {
 
     pub fn stab_manager(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, out_size: (usize, usize), open_gyroflow_if_no_data: bool) -> PluginResult<Arc<StabilizationManager>> {
         let mut disable_stretch = params.get_bool(Params::DisableStretch)?;
+        // As it is in the key the stabilization is loaded under
+        let manual_zoom = params.get_bool(Params::ManualZoom).unwrap_or(false);
 
         let path = params.get_string(Params::ProjectPath)?;
         if path.is_empty() {
@@ -1227,6 +1280,8 @@ impl GyroflowPluginBaseInstance {
                     params.set_f64(Params::Fov,                    gf_params.fov)?;
                     params.set_f64(Params::Smoothness,             smoothness * 100.0)?;
                     params.set_f64(Params::ZoomLimit,              gf_params.max_zoom.unwrap_or(0.0))?;
+                    // Not in every host (see the Adobe parameters)
+                    let _ = params.set_bool(Params::ManualZoom,    (gf_params.fixed_zoom && gf_params.adaptive_zoom_window < -0.9) || Self::has_manual_zoom_flag(params));
                     params.set_f64(Params::LensCorrectionStrength, (gf_params.lens_correction_amount * 100.0).min(100.0))?;
                     params.set_f64(Params::HorizonLockAmount,      if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonlockpercent } else { 0.0 })?;
                     params.set_f64(Params::HorizonLockRoll,        if smooth.horizon_lock.lock_enabled { smooth.horizon_lock.horizonroll } else { 0.0 })?;
@@ -1330,6 +1385,8 @@ impl GyroflowPluginBaseInstance {
             if disable_stretch {
                 stab.disable_lens_stretch(self.anamorphic_adjust_size);
             }
+
+            Self::apply_manual_zoom(&stab, manual_zoom);
 
             self.configure(params, &stab, out_size, true)?;
 
@@ -1484,7 +1541,11 @@ impl GyroflowPluginBaseInstance {
                         }
                     }
                 }
-                let preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                let mut preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                // "Manual zoom", as the plugin's flag (see `has_manual_zoom_flag`)
+                if params.get_bool(Params::ManualZoom).unwrap_or(false) {
+                    preset["plugin_manual_zoom"] = serde_json::Value::Bool(true);
+                }
                 // The preset the core applies to every newly loaded video (see `StabilizationManager::load_video_file`)
                 let dir = gyroflow_core::settings::data_dir().join("lens_profiles");
                 std::fs::create_dir_all(&dir)?;
