@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use ofx::*;
 use super::fuscript::*;
 use gyroflow_plugin_base::*;
+use gyroflow_plugin_base::inspector_language;
 use gyroflow_core::stabilization_params::StabilizationParams;
 use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
@@ -27,6 +28,73 @@ pub fn frame_from_timetype(time: TimeType) -> f64 {
         TimeType::Frame(x) => x,
         TimeType::FrameOrMicrosecond((Some(x), _)) => x,
         _ => panic!("Shouldn't happen"),
+    }
+}
+
+/// Parameters defined outside `GyroflowPluginBase::get_param_definitions`: (name, label, hint)
+const LANGUAGE_PARAM: (&str, &str, &str) = ("Language", "Language", "Choose the Inspector language. Use default follows DaVinci Resolve's language; Save as default keeps the chosen language for new instances.");
+const LENS_PROFILE_LIST: (&str, &str, &str) = ("LensProfileList", "Lens profile library", "Load a lens profile or preset from the Gyroflow lens_profiles folder. The list is read when DaVinci Resolve starts.");
+const LENS_PROFILE_LIST_PROMPT: &str = "Select a lens profile…";
+/// The options of the lens profile list: a prompt, then the files of the library
+fn lens_profile_options() -> Vec<&'static str> {
+    std::iter::once(LENS_PROFILE_LIST_PROMPT).chain(lens_profile_library().iter().map(|(name, _)| name.as_str())).collect()
+}
+const DISTORTION_AWARE_BORDER: (&str, &str, &str) = ("DistortionAwareBorder", "Distortion-Aware Border", "Use the lens distortion model for the stabilization border. RS Compen. Only always uses rectangular geometry.");
+const ROLLING_SHUTTER_GROUP: (&str, &str, &str) = ("RollingShutterGroup", "Rolling Shutter", "");
+const ROLLING_SHUTTER_TOGGLES: [(&str, &str, &str); 2] = [
+    ("RollingShutterCompensationOnly", "RS Compen. Only", "Apply only rolling shutter compensation with rectangular border geometry. Requires RS Compen. On."),
+    ("RollingShutterCompensation", "RS Compen. On", "Correct rolling shutter using the sensor readout time."),
+];
+const ROLLING_SHUTTER_READOUT: (&str, &str, &str) = ("RollingShutterReadout", "Rolling shutter (ms)", "Sensor readout time in milliseconds, initialized from the loaded profile or clip.");
+const LENS_INFO_PARAMS: [(&str, &str, &str); 5] = [
+    ("LensCamera", "Camera", ""),
+    ("LensCameraSetting", "Camera setting", ""),
+    ("LensFocalLength", "Focal length", ""),
+    ("LensHorizontalSqueeze", "Horizontal squeeze", ""),
+    ("LensVerticalSqueeze", "Vertical squeeze", ""),
+];
+
+/// Whether the parameters were last described in Chinese
+static DESCRIBED_CHINESE: AtomicBool = AtomicBool::new(false);
+fn described_language() -> InspectorLanguage {
+    if DESCRIBED_CHINESE.load(SeqCst) { InspectorLanguage::Chinese } else { InspectorLanguage::English }
+}
+
+/// Relabels an instance's parameters, choice options included, in `lang`
+fn relabel_params(param_set: &ParamSetHandle, lang: InspectorLanguage) {
+    fn relabel(param_set: &ParamSetHandle, id: &str, label: &str, hint: &str, options: &[&str], lang: InspectorLanguage) {
+        let Ok(mut param) = param_set.parameter::<String>(id) else { return; };
+        let _ = param.set_label(lang.text(label));
+        if !hint.is_empty() {
+            let _ = param.set_hint(lang.text(hint));
+        }
+        for (i, option) in options.iter().enumerate() {
+            let _ = <str as RawSetter<_>>::set_at(&mut param, c"OfxParamPropChoiceOption".as_ptr(), i, lang.text(option));
+        }
+    }
+    fn walk(param_set: &ParamSetHandle, x: &ParameterType, lang: InspectorLanguage) {
+        match x {
+            ParameterType::HiddenString { .. } => {}
+            ParameterType::TextBox { id, label, hint } | ParameterType::Text { id, label, hint } |
+            ParameterType::Slider { id, label, hint, .. } | ParameterType::Checkbox { id, label, hint, .. } |
+            ParameterType::Button { id, label, hint } => relabel(param_set, id, label, hint, &[], lang),
+            ParameterType::Select { id, label, hint, options, .. } => relabel(param_set, id, label, hint, options, lang),
+            ParameterType::Group { id, label, parameters, .. } => {
+                relabel(param_set, id, label, "", &[], lang);
+                for x in parameters { walk(param_set, x, lang); }
+            }
+        }
+    }
+    for x in GyroflowPluginBase::get_param_definitions() {
+        walk(param_set, &x, lang);
+    }
+    let (id, label, hint) = LANGUAGE_PARAM;
+    relabel(param_set, id, label, hint, &inspector_language::CHOICES, lang);
+    let (id, label, hint) = LENS_PROFILE_LIST;
+    relabel(param_set, id, label, hint, &[LENS_PROFILE_LIST_PROMPT], lang);
+    for (id, label, hint) in [DISTORTION_AWARE_BORDER, ROLLING_SHUTTER_GROUP, ROLLING_SHUTTER_READOUT].into_iter()
+        .chain(ROLLING_SHUTTER_TOGGLES).chain(LENS_INFO_PARAMS) {
+        relabel(param_set, id, label, hint, &[], lang);
     }
 }
 
@@ -89,6 +157,8 @@ define_params!(ParamHandler {
         IntegrationMethod     => integration_method:       ParamHandle<Int>,
         SqueezeRatio          => squeeze_ratio:            ParamHandle<Int>,
         VerticalSqueezeRatio  => vertical_squeeze_ratio:   ParamHandle<Int>,
+        Language              => language:                 ParamHandle<Int>,
+        LensProfileList       => lens_profile_list:        ParamHandle<Int>,
     ],
 
     get_string:  _s p    { Ok(p.get_value()?) },
@@ -716,6 +786,8 @@ impl Execute for GyroflowPlugin {
                         custom_squeeze_ratio:     param_set.parameter("CustomSqueezeRatio")?,
                         input_vertical_stretch:   param_set.parameter("InputVerticalStretch")?,
                         vertical_squeeze_ratio:   param_set.parameter("VerticalSqueezeRatio")?,
+                        language:                 param_set.parameter("Language")?,
+                        lens_profile_list:        param_set.parameter("LensProfileList")?,
 
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,
@@ -760,6 +832,10 @@ impl Execute for GyroflowPlugin {
                     current_file_info:         Arc::new(Mutex::new(None)),
                     current_file_info_pending: Arc::new(AtomicBool::new(false)),
                 };
+                let language = instance_data.params.language();
+                if language != described_language() {
+                    relabel_params(&param_set, language);
+                }
                 let mut instance_id = instance_data.params.get_string(Params::InstanceId).unwrap_or_default();
                 instance_data.plugin.initialize_instance_id(&mut instance_id);
                 let _ = instance_data.params.set_string(Params::InstanceId, &instance_id);
@@ -784,7 +860,11 @@ impl Execute for GyroflowPlugin {
                 OK
             }
             InstanceChanged(ref mut effect, ref mut in_args) => {
+                let param_set = effect.parameter_set()?;
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
+                if in_args.get_name()? == "Language" {
+                    relabel_params(&param_set, instance_data.params.language());
+                }
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
                 }
@@ -848,7 +928,7 @@ impl Execute for GyroflowPlugin {
 
                 let mut param_set = effect.parameter_set()?;
 
-                fn define_param(param_set: &mut ParamSetHandle, x: ParameterType, group: Option<&'static str>) -> Result<Int> {
+                fn define_param(param_set: &mut ParamSetHandle, x: ParameterType, group: Option<&'static str>, lang: InspectorLanguage) -> Result<Int> {
                     match x {
                         ParameterType::HiddenString { id } => {
                             let mut param = param_set.param_define_string(id)?;
@@ -863,23 +943,23 @@ impl Execute for GyroflowPlugin {
                             }
                             let mut param = param_set.param_define_button(id)?;
                             let _ = param.set_script_name(id);
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::TextBox { id, label, hint } => {
                             let mut param = param_set.param_define_string(id)?;
                             let _ = param.set_script_name(id);
                             param.set_string_type(ParamStringType::SingleLine)?;
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Text { id, label, hint } => {
                             let mut param = param_set.param_define_string(id)?;
                             param.set_string_type(ParamStringType::SingleLine)?;
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             //param.set_enabled(false)?;
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
@@ -888,60 +968,77 @@ impl Execute for GyroflowPlugin {
                             param.set_default(default)?;
                             param.set_display_min(if id == "Smoothness" { 0.0 } else { min })?;
                             param.set_display_max(max)?;
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             let _ = param.set_script_name(id);
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Checkbox { id, label, hint, default } => {
                             if id == "StabilizationSpeedRamp" { return OK; }
                             let mut param = param_set.param_define_boolean(id)?;
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             param.set_default(default)?;
                             let _ = param.set_script_name(id);
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Select { id, label, hint, options, default } => {
                             let mut param = param_set.param_define_choice(id)?;
-                            param.set_label(label)?;
-                            param.set_hint(hint)?;
+                            param.set_label(lang.text(label))?;
+                            param.set_hint(lang.text(hint))?;
                             param.set_default(options.iter().position(|x| *x == default).unwrap_or(0) as i32)?;
-                            param.set_choices(&options)?;
+                            param.set_choices(&options.iter().map(|x| lang.text(x)).collect::<Vec<_>>())?;
                             let _ = param.set_script_name(id);
                             if let Some(group) = group { param.set_parent(group)?; }
                         }
                         ParameterType::Group { id, label, parameters, opened } => {
                             let mut param = param_set.param_define_group(id)?;
-                            param.set_label(label)?;
+                            param.set_label(lang.text(label))?;
                             param.set_group_open(opened)?;
                             if let Some(group) = group { param.set_parent(group)?; }
 
+                            if id == "ProjectGroup" {
+                                let (name, label, hint) = LANGUAGE_PARAM;
+                                let mut language = param_set.param_define_choice(name)?;
+                                language.set_parent(id)?;
+                                language.set_label(lang.text(label))?;
+                                language.set_hint(lang.text(hint))?;
+                                language.set_choices(&inspector_language::CHOICES.iter().map(|x| lang.text(x)).collect::<Vec<_>>())?;
+                                language.set_default(0)?;
+                                let _ = language.set_script_name(name);
+                                <Bool as RawSetter<_>>::set_at(&mut language, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
+                            }
                             for x in parameters {
                                 let follows_video_speed = id == "AdjustGroup"
                                     && matches!(&x, ParameterType::Slider { id: "VideoSpeed", .. });
-                                define_param(param_set, x, Some(id))?;
+                                let follows_load_lens = matches!(&x, ParameterType::Button { id: "LoadLens", .. });
+                                define_param(param_set, x, Some(id), lang)?;
+                                if follows_load_lens {
+                                    let (name, label, hint) = LENS_PROFILE_LIST;
+                                    let mut list = param_set.param_define_choice(name)?;
+                                    list.set_parent(id)?;
+                                    list.set_label(lang.text(label))?;
+                                    list.set_hint(lang.text(hint))?;
+                                    list.set_choices(&lens_profile_options().into_iter().map(|x| lang.text(x)).collect::<Vec<_>>())?;
+                                    list.set_default(0)?;
+                                    let _ = list.set_script_name(name);
+                                    <Bool as RawSetter<_>>::set_at(&mut list, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
+                                }
                                 if follows_video_speed {
                                     let mut border = param_set.param_define_boolean("DistortionAwareBorder")?;
                                     border.set_parent(id)?;
-                                    border.set_label("Distortion-Aware Border")?;
-                                    border.set_hint("Use the lens distortion model for the stabilization border. RS Compen. Only always uses rectangular geometry.")?;
+                                    border.set_label(lang.text(DISTORTION_AWARE_BORDER.1))?;
+                                    border.set_hint(lang.text(DISTORTION_AWARE_BORDER.2))?;
                                     border.set_default(true)?;
                                     let _ = border.set_script_name("DistortionAwareBorder");
                                     <Bool as RawSetter<_>>::set_at(&mut border, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
                                 }
                             }
                             if id == "InfoGroup" {
-                                for (name, label) in [
-                                    ("LensCamera", "Camera"),
-                                    ("LensCameraSetting", "Camera setting"),
-                                    ("LensFocalLength", "Focal length"),
-                                    ("LensHorizontalSqueeze", "Horizontal squeeze"),
-                                    ("LensVerticalSqueeze", "Vertical squeeze"),
-                                ] {
+                                for (name, label, _) in LENS_INFO_PARAMS {
                                     let mut field = param_set.param_define_string(name)?;
                                     field.set_parent(id)?;
-                                    field.set_label(label)?;
+                                    field.set_label(lang.text(label))?;
                                     field.set_string_type(ParamStringType::SingleLine)?;
                                     field.set_enabled(false)?;
                                     let _ = <Bool as RawSetter<_>>::set_at(&mut field, c"OfxParamPropPluginMayWrite".as_ptr(), 0, &true);
@@ -952,28 +1049,25 @@ impl Execute for GyroflowPlugin {
                     OK
                 }
 
-                fn define_rolling_shutter(param_set: &mut ParamSetHandle) -> Result<()> {
+                fn define_rolling_shutter(param_set: &mut ParamSetHandle, lang: InspectorLanguage) -> Result<()> {
                     let group = "RollingShutterGroup";
                     let mut rolling_shutter = param_set.param_define_group(group)?;
-                    rolling_shutter.set_label("Rolling Shutter")?;
+                    rolling_shutter.set_label(lang.text(ROLLING_SHUTTER_GROUP.1))?;
                     rolling_shutter.set_group_open(true)?;
-                    for (id, label, default, hint) in [
-                        ("RollingShutterCompensationOnly", "RS Compen. Only", false, "Apply only rolling shutter compensation with rectangular border geometry. Requires RS Compen. On."),
-                        ("RollingShutterCompensation", "RS Compen. On", true, "Correct rolling shutter using the sensor readout time."),
-                    ] {
+                    for ((id, label, hint), default) in ROLLING_SHUTTER_TOGGLES.into_iter().zip([false, true]) {
                         let mut toggle = param_set.param_define_boolean(id)?;
                         toggle.set_parent(group)?;
-                        toggle.set_label(label)?;
-                        toggle.set_hint(hint)?;
+                        toggle.set_label(lang.text(label))?;
+                        toggle.set_hint(lang.text(hint))?;
                         let _ = toggle.set_script_name(id);
                         toggle.set_default(default)?;
                         <Bool as RawSetter<_>>::set_at(&mut toggle, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
                     }
                     let mut readout = param_set.param_define_double("RollingShutterReadout")?;
                     readout.set_parent(group)?;
-                    readout.set_label("Rolling shutter (ms)")?;
+                    readout.set_label(lang.text(ROLLING_SHUTTER_READOUT.1))?;
                     let _ = readout.set_script_name("RollingShutterReadout");
-                    readout.set_hint("Sensor readout time in milliseconds, initialized from the loaded profile or clip.")?;
+                    readout.set_hint(lang.text(ROLLING_SHUTTER_READOUT.2))?;
                     readout.set_default(UNSET_ROLLING_SHUTTER_READOUT)?;
                     readout.set_display_min(0.0)?;
                     readout.set_display_max(50.0)?;
@@ -982,11 +1076,14 @@ impl Execute for GyroflowPlugin {
                     Ok(())
                 }
 
+                // New instances open in the saved default language; one set to another relabels itself
+                let lang = InspectorLanguage::resolve(0);
+                DESCRIBED_CHINESE.store(lang == InspectorLanguage::Chinese, SeqCst);
                 for param in GyroflowPluginBase::get_param_definitions() {
                     if matches!(&param, ParameterType::Group { id: "AdjustGroup", .. }) {
-                        define_rolling_shutter(&mut param_set)?;
+                        define_rolling_shutter(&mut param_set, lang)?;
                     }
-                    define_param(&mut param_set, param, None)?;
+                    define_param(&mut param_set, param, None, lang)?;
                 }
 
                 param_set

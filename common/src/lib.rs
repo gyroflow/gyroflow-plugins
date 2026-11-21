@@ -5,6 +5,8 @@ use std::cell::Cell;
 use std::sync::{ Arc, Weak, atomic::AtomicBool };
 
 pub mod video_metadata;
+pub mod inspector_language;
+pub use inspector_language::InspectorLanguage;
 
 pub use gyroflow_core::{ StabilizationManager, keyframes::*, stabilization::*, filesystem, gpu::* };
 pub use gyroflow_core;
@@ -83,6 +85,8 @@ pub enum Params {
     LensVerticalSqueeze,
     RollingShutterCompensationOnly,
     DistortionAwareBorder,
+    Language,
+    LensProfileList,
 }
 
 /// A legacy or newly loaded OFX instance still needs the clip's readout value.
@@ -508,7 +512,7 @@ impl GyroflowPluginBase {
                 ParameterType::Slider   { id: "CustomSqueezeRatio", label: "Custom horizontal stretch", hint: "Custom horizontal stretch (1.0x - 2.0x), used when Input horizontal stretch is set to Custom", min: 1.0, max: 2.0, default: 1.3333 },
                 ParameterType::Select   { id: "VerticalSqueezeRatio", label: "Input vertical stretch", hint: "Initialized from input_vertical_stretch in the lens profile. Describes the recorded sensor's vertical axis before video rotation. Used for anamorphic framing and the crop guide; does not de-squeeze the image.", options: vec!["1.0x (Default)", "1.25x", "1.3x", "1.33x", "1.5x", "1.6x", "1.7x", "1.8x", "1.85x", "2x", "Custom"], default: "1.0x (Default)" },
                 ParameterType::Slider   { id: "InputVerticalStretch", label: "Custom vertical stretch", hint: "Custom vertical stretch (1.0x - 2.0x), used when Input vertical stretch is set to Custom", min: 1.0, max: 2.0, default: 1.0 },
-                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zooming, zoom limit, lens correction, horizon lock and FOV as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
+                ParameterType::Button   { id: "SaveDefault",            label: "Save as default",      hint: "Save the current smoothness, zooming, zoom limit, lens correction, horizon lock, FOV and Inspector language as the defaults for every newly loaded clip (lens_profiles/default.gyroflow)" },
                 //ParameterType::Slider   { id: "FusionStartFrame",       label: "Fusion Start Frame",   hint: "Fusion Start Frame (from Project Settings)", min: 0.0, max: 100000.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "KeyframesGroup", label: "Keyframes", opened: false, parameters: vec![
@@ -534,6 +538,35 @@ impl GyroflowPluginBase {
             ] },
         ]
     }
+}
+
+/// The lens profiles and presets in the Gyroflow lens_profiles folder and its subfolders, as (name shown, path), read once
+/// per session. The saved default preset and its backups aren't in it
+pub fn lens_profile_library() -> &'static [(String, std::path::PathBuf)] {
+    static LIBRARY: std::sync::OnceLock<Vec<(String, std::path::PathBuf)>> = std::sync::OnceLock::new();
+    LIBRARY.get_or_init(|| {
+        let root = gyroflow_core::settings::data_dir().join("lens_profiles");
+        let mut found = Vec::new();
+        let mut dirs = vec![root.clone()];
+        while let Some(dir) = dirs.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue; };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                let ext = path.extension().and_then(|x| x.to_str()).unwrap_or_default().to_ascii_lowercase();
+                let is_default = path.file_name().is_some_and(|x| x == "default.gyroflow");
+                if (ext == "json" || ext == "gyroflow") && !is_default {
+                    let name = path.strip_prefix(&root).unwrap_or(&path).with_extension("").display().to_string().replace('\\', "/");
+                    found.push((name, path));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+        found
+    })
 }
 
 /// See `GyroflowPluginBase::render_geometry`
@@ -605,6 +638,11 @@ pub trait GyroflowPluginParams {
     fn set_enabled(&mut self, param: Params, enabled: bool) -> PluginResult<()>;
     fn set_label(&mut self, param: Params, label: &str) -> PluginResult<()>;
     fn set_hint(&mut self, param: Params, hint: &str) -> PluginResult<()>;
+    /// The Inspector language this instance shows, the saved default for hosts without a Language parameter
+    /// The Language selection, 0 ("Use default") for hosts without a Language parameter
+    fn language_selection(&self) -> i32 { 0 }
+    /// The Inspector language this instance shows
+    fn language(&self) -> InspectorLanguage { InspectorLanguage::resolve(self.language_selection()) }
 
     fn set_f64(&mut self, param: Params, value: f64) -> PluginResult<()>;
     fn get_f64(&self, param: Params) -> PluginResult<f64>;
@@ -775,8 +813,9 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::OutputHeight, loaded);
         let _ = params.set_enabled(Params::OutputSizeToTimeline, loaded);
         let _ = params.set_enabled(Params::OutputSizeSwap, loaded);
-        let _ = params.set_string(Params::Status, if loaded { "OK" } else { "Project not loaded" });
-        let _ = params.set_label(Params::OpenGyroflow, if loaded { "Open in Gyroflow" } else { "Open Gyroflow" });
+        let language = params.language();
+        let _ = params.set_string(Params::Status, language.text(if loaded { "OK" } else { "Project not loaded" }));
+        let _ = params.set_label(Params::OpenGyroflow, language.text(if loaded { "Open in Gyroflow" } else { "Open Gyroflow" }));
         self.update_squeeze_border(params);
     }
 
@@ -1562,7 +1601,7 @@ impl GyroflowPluginBaseInstance {
                         } else {
                             log::error!("An error occured: {e:?}");
                             self.update_loaded_state(params, false);
-                            params.set_string(Params::Status, "Failed to load file info!")?;
+                            params.set_string(Params::Status, params.language().text("Failed to load file info!"))?;
                             params.set_hint(Params::Status, &format!("Error loading {path}: {e:?}."))?;
                             if open_gyroflow_if_no_data {
                                 GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
@@ -1751,6 +1790,8 @@ impl GyroflowPluginBaseInstance {
     }
 
     pub fn set_status(&mut self, params: &mut dyn GyroflowPluginParams, status: &str, hint: &str, ok: bool) {
+        let language = params.language();
+        let (status, hint) = (language.text(status), language.text(hint));
         if params.get_string(Params::Status).unwrap_or_default() != status {
             let _ = params.set_string(Params::Status, status);
             let _ = params.set_hint(Params::Status, hint);
@@ -1804,7 +1845,51 @@ impl GyroflowPluginBaseInstance {
             .unwrap_or_default()
     }
 
+    /// Loads a lens profile or a preset (or a project), as "Load preset/lens profile" does with the file picked
+    pub fn load_lens_or_preset(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, d: &str) -> Result<(), Box<dyn std::error::Error>> {
+        if d.is_empty() {
+            return Ok(());
+        }
+        if let Ok(contents) = std::fs::read_to_string(&d) {
+            // Over a project, they apply over the projects loaded after it too, not only over the videos
+            let over_project = params.get_string(Params::ProjectPath)?.ends_with(".gyroflow");
+            let mark = |x: String| if over_project { GyroflowPluginBase::mark_loaded_over_project(&x) } else { x };
+            if d.to_ascii_lowercase().ends_with(".json") {
+                params.set_string(Params::EmbeddedLensProfile, &mark(contents))?;
+            } else if let Some(video) = GyroflowPluginBase::project_video_file(&contents) {
+                // A project rather than a preset. The one of this clip is loaded as the project, like with "Browse". Of
+                // another clip, its settings are the preset: its motion data and sync points would stabilize this clip wrong
+                let current_video = self.current_video(params);
+                let name = |x: &str| filesystem::get_filename(&if x.contains("://") { x.to_owned() } else { filesystem::path_to_url(x) });
+                if !current_video.is_empty() && name(&current_video).eq_ignore_ascii_case(&name(&video)) {
+                    self.pick_project(params, manager_cache, &d)?;
+                } else {
+                    let preset_name = name(&d).trim_end_matches(".gyroflow").to_owned();
+                    params.set_string(Params::EmbeddedPreset, &mark(GyroflowPluginBase::project_to_preset(&contents, &preset_name).unwrap_or_default()))?;
+                }
+            } else {
+                params.set_string(Params::EmbeddedPreset, &mark(contents))?;
+            }
+            if params.get_f64(Params::RollingShutterReadout).is_ok() {
+                params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT)?;
+                params.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
+            }
+            self.reload_values_from_project = true;
+        }
+        self.clear_stab(&manager_cache);
+        Ok(())
+    }
+
     pub fn param_changed(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, param: Params, user_edited: bool) -> Result<(), Box<dyn std::error::Error>> {
+        if param == Params::Language {
+            // The host relabels the parameters; these are the texts that follow the instance's state
+            let language = params.language();
+            let status = params.get_string(Params::Status).unwrap_or_default();
+            let loaded = language.text(&status) == language.text("OK");
+            let _ = params.set_string(Params::Status, language.text(&status));
+            let _ = params.set_label(Params::OpenGyroflow, language.text(if loaded { "Open in Gyroflow" } else { "Open Gyroflow" }));
+            return Ok(());
+        }
         if param == Params::VerticalSqueezeRatio {
             let index = params.get_i32(Params::VerticalSqueezeRatio).unwrap_or(0);
             if user_edited {
@@ -1829,35 +1914,17 @@ impl GyroflowPluginBaseInstance {
             let mut d = rfd::FileDialog::new().add_filter("Lens profiles and presets", &["json", "gyroflow"]);
             d = d.set_directory(lens_directory);
             if let Some(d) = d.pick_file() {
-                let d = d.display().to_string();
-                if !d.is_empty() {
-                    if let Ok(contents) = std::fs::read_to_string(&d) {
-                        // Over a project, they apply over the projects loaded after it too, not only over the videos
-                        let over_project = params.get_string(Params::ProjectPath)?.ends_with(".gyroflow");
-                        let mark = |x: String| if over_project { GyroflowPluginBase::mark_loaded_over_project(&x) } else { x };
-                        if d.ends_with(".json") {
-                            params.set_string(Params::EmbeddedLensProfile, &mark(contents))?;
-                        } else if let Some(video) = GyroflowPluginBase::project_video_file(&contents) {
-                            // A project rather than a preset. The one of this clip is loaded as the project, like with "Browse". Of
-                            // another clip, its settings are the preset: its motion data and sync points would stabilize this clip wrong
-                            let current_video = self.current_video(params);
-                            let name = |x: &str| filesystem::get_filename(&if x.contains("://") { x.to_owned() } else { filesystem::path_to_url(x) });
-                            if !current_video.is_empty() && name(&current_video).eq_ignore_ascii_case(&name(&video)) {
-                                self.pick_project(params, manager_cache, &d)?;
-                            } else {
-                                let preset_name = name(&d).trim_end_matches(".gyroflow").to_owned();
-                                params.set_string(Params::EmbeddedPreset, &mark(GyroflowPluginBase::project_to_preset(&contents, &preset_name).unwrap_or_default()))?;
-                            }
-                        } else {
-                            params.set_string(Params::EmbeddedPreset, &mark(contents))?;
-                        }
-                        if params.get_f64(Params::RollingShutterReadout).is_ok() {
-                            params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT)?;
-                            params.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
-                        }
-                        self.reload_values_from_project = true;
-                    }
-                    self.clear_stab(&manager_cache);
+                self.load_lens_or_preset(params, manager_cache, &d.display().to_string())?;
+            }
+        }
+        if param == Params::LensProfileList {
+            // A menu rather than a value: back to "Select a lens profile…" once loaded, so a saved index never stands for
+            // whatever file has its place in a later session's list
+            let index = params.get_i32(Params::LensProfileList).unwrap_or(0);
+            if index > 0 {
+                params.set_i32(Params::LensProfileList, 0)?;
+                if let Some((_, path)) = lens_profile_library().get(index as usize - 1) {
+                    self.load_lens_or_preset(params, manager_cache, &path.display().to_string())?;
                 }
             }
         }
@@ -1882,7 +1949,11 @@ impl GyroflowPluginBaseInstance {
                         }
                     }
                 }
-                let preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                let mut preset = serde_json::json!({ "title": "Plugin default", "version": 4, "videofile": "", "stabilization": stabilization });
+                // "Use default" saves no language: new instances keep following DaVinci Resolve's
+                if let Some(language) = InspectorLanguage::saved_for(params.language_selection()) {
+                    preset[inspector_language::PRESET_KEY] = language.code().into();
+                }
                 // The preset the core applies to every newly loaded video (see `StabilizationManager::load_video_file`)
                 let dir = gyroflow_core::settings::data_dir().join("lens_profiles");
                 std::fs::create_dir_all(&dir)?;
@@ -1897,11 +1968,12 @@ impl GyroflowPluginBaseInstance {
             match result {
                 Ok(path) => {
                     log::info!("Saved default preset to {path:?}");
-                    rfd::MessageDialog::new().set_description(format!("Default settings saved.\nThey will be applied to the next clips loaded.\n\n{}", path.display())).show();
+                    InspectorLanguage::remember_default(InspectorLanguage::saved_for(params.language_selection()));
+                    rfd::MessageDialog::new().set_description(format!("{}\n\n{}", params.language().text("Default settings saved.\nThey will be applied to the next clips loaded."), path.display())).show();
                 },
                 Err(e) => {
                     log::error!("Failed to save default preset: {e:?}");
-                    rfd::MessageDialog::new().set_description(format!("Failed to save default settings: {e}")).show();
+                    rfd::MessageDialog::new().set_description(format!("{}: {e}", params.language().text("Failed to save default settings"))).show();
                 }
             }
         }
@@ -2001,11 +2073,11 @@ impl GyroflowPluginBaseInstance {
                 Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::Zooming | Params::IntegrationMethod |
                 Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes => {
 
-                    params.set_string(Params::Status, "Calculating...")?;
+                    params.set_string(Params::Status, params.language().text("Calculating..."))?;
                     let use_gyroflows_keyframes = params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default();
                     self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
                     self.recompute_for(params, param, use_gyroflows_keyframes);
-                    params.set_string(Params::Status, "OK")?;
+                    params.set_string(Params::Status, params.language().text("OK"))?;
                 },
                 Params::RollingShutterCompensation | Params::RollingShutterReadout => {
                     self.recompute_for(params, param, false);
@@ -2156,6 +2228,12 @@ macro_rules! define_params {
                     _ => panic!("Wrong parameter type"),
                 }
             }
+            fn language_selection(&self) -> i32 {
+                $( if Params::$i32_enum == Params::Language {
+                    return self.get_i32(Params::Language).unwrap_or(0);
+                } )*
+                0
+            }
             fn set_hint(&mut self, param: Params, hint: &str) -> $crate::PluginResult<()> {
                 let mut $shint_s = &mut self.fields;
                 let $shint_v = hint;
@@ -2242,6 +2320,7 @@ mod tests {
         fn set_enabled(&mut self, p: Params, enabled: bool) -> PluginResult<()> { self.enabled.insert(p, enabled); Ok(()) }
         fn set_label(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
         fn set_hint(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
+        fn language(&self) -> InspectorLanguage { InspectorLanguage::English }
         fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> { self.f64s.insert(p, v); Ok(()) }
         fn get_f64(&self, p: Params) -> PluginResult<f64> {
             if p == Params::RollingShutterReadout {
