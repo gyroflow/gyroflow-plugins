@@ -3,7 +3,10 @@
 //! The host retains responsibility for RAW decoding and color controls.
 
 use gyroflow_core::{GyroflowCoreError, StabilizationManager, filesystem, telemetry_parser};
+use gyroflow_core::lens_profile::LensProfile;
+use serde_json::Value;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use telemetry_parser::util::VideoMetadata;
 
 pub fn get_video_metadata<T: Read + Seek>(
@@ -38,8 +41,81 @@ pub fn load_video_file<T: Read + Seek>(
 ) -> Result<VideoMetadata, GyroflowCoreError> {
     let metadata = get_video_metadata(stream, filesize, url)?;
     stream.seek(SeekFrom::Start(0))?;
-    // Keep the real URL for camera detection, sidecars, presets and persistence.
-    stab.load_video_file(stream, filesize, url, Some(metadata), true)
+    // Keep the real URL for camera detection, presets and persistence.
+    let metadata = stab.load_video_file(stream, filesize, url, Some(metadata), true)?;
+    if metadata.width > 0 && metadata.height > 0 && metadata.duration_s > 0.0 && metadata.fps > 0.0 {
+        autoload_local_zoom_profile(stab)?;
+    }
+    Ok(metadata)
+}
+
+pub(crate) fn zoom_focal_range(profile: &LensProfile) -> Option<(f64, f64)> {
+    let anchors = profile.interpolations.as_ref()?.as_object()?;
+    let (min, max) = anchors.iter().filter_map(|(key, anchor)| {
+        let mm = anchor.get("focal_length")?.as_f64()?;
+        let key: f64 = key.parse().ok()?;
+        (mm.is_finite() && mm > 0.0 && (key - mm).abs() <= 0.000001).then_some(mm)
+    }).fold((f64::INFINITY, 0.0_f64), |(min, max), mm| (min.min(mm), max.max(mm)));
+    (max > min).then_some((min, max))
+}
+
+fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), GyroflowCoreError> {
+    let Some(camera) = stab.camera_id.read().clone() else { return Ok(()); };
+    if camera.identifier.is_empty() || camera.lens_model.trim().is_empty() {
+        return Ok(());
+    }
+    let (min, max) = {
+        let gyro = stab.gyro.read();
+        let metadata = gyro.file_metadata.read();
+        if metadata.lens_profile.as_ref().is_some_and(Value::is_object) {
+            return Ok(());
+        }
+        metadata.lens_positions.values().filter(|f| f.is_finite() && **f > 0.0)
+            .fold((f64::INFINITY, 0.0_f64), |(min, max), &f| (min.min(f), max.max(f)))
+    };
+    if !min.is_finite() {
+        return Ok(());
+    }
+    let id = camera.get_identifier_for_autoload();
+    let selection = {
+        let db = stab.lens_profile_db.read();
+        if max <= min * 1.002 && db.contains_id(&id) {
+            return Ok(());
+        }
+        let local = gyroflow_core::settings::data_dir().join("lens_profiles");
+        let lens_name = |name: &str| {
+            let name = name.trim().to_ascii_lowercase();
+            let name = if camera.brand.eq_ignore_ascii_case("Sony") {
+                name.strip_prefix("e ").or_else(|| name.strip_prefix("tamron ")).unwrap_or(&name)
+            } else { &name };
+            name.split_whitespace().collect::<String>()
+        };
+        let camera_lens = lens_name(&camera.lens_model);
+        db.get_all_filenames().into_iter().filter_map(|path| {
+            if !Path::new(&path).starts_with(&local) {
+                return None;
+            }
+            let profile = db.find(&path)?;
+            if !profile.has_interpolations()
+                || !profile.camera_brand.eq_ignore_ascii_case(&camera.brand)
+                || !profile.camera_model.eq_ignore_ascii_case(&camera.model)
+                || lens_name(&profile.lens_model) != camera_lens
+                || (profile.calib_dimension.w, profile.calib_dimension.h) != (camera.video_width, camera.video_height)
+                || (profile.fps * 1000.0).round() as usize != camera.fps
+                || (!profile.camera_setting.is_empty() && !camera.camera_setting.is_empty()
+                    && !profile.camera_setting.eq_ignore_ascii_case(&camera.camera_setting)) {
+                return None;
+            }
+            let (start, end) = zoom_focal_range(profile)?;
+            (min >= start - 0.0001 && max <= end + 0.0001).then(|| {
+                (end - start, if profile.identifier.is_empty() { path } else { profile.identifier.clone() })
+            })
+        }).min_by(|(a, ka), (b, kb)| a.total_cmp(b).then(ka.cmp(kb))).map(|(_, key)| key)
+    };
+    if let Some(key) = selection {
+        stab.load_lens_profile(&key)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -471,7 +471,7 @@ impl GyroflowPluginBase {
                 ParameterType::Text    { id: "Status",            label: "Status",                   hint: "Status" },
                 ParameterType::Button  { id: "LoadCurrent",       label: "Load for current file",    hint: "Try to load project file for current video file, or try to stabilize that video file directly" },
                 ParameterType::Button  { id: "Browse",            label: "Browse",                   hint: "Browse for the Gyroflow project file" },
-                ParameterType::Button  { id: "LoadLens",          label: "Load preset/lens profile", hint: "Browse for the lens profile or a preset" },
+                ParameterType::Button  { id: "LoadLens",          label: "Load preset/lens profile", hint: "Open a lens profile, including a zoom profile, or a preset" },
                 ParameterType::Button  { id: "OpenGyroflow",      label: "Open Gyroflow",            hint: "Open project in Gyroflow" },
                 ParameterType::Button  { id: "ReloadProject",     label: "Reload project",           hint: "Reload currently loaded project" },
                 ParameterType::Button  { id: "OpenRecentProject", label: "Last saved project",       hint: "Load most recently saved project in the Gyroflow app" },
@@ -899,6 +899,14 @@ impl GyroflowPluginBaseInstance {
         if w > 0 && h > 0 {
             stab.set_output_size(w, h);
         }
+    }
+
+    fn loaded_lens_name(lens: &gyroflow_core::lens_profile::LensProfile) -> String {
+        let mut name = lens.get_display_name();
+        if let Some((start, end)) = video_metadata::zoom_focal_range(lens) {
+            name.push_str(&format!(" ({start}-{end} mm)"));
+        }
+        name
     }
 
     /// Applies the lens profile and the preset loaded with "Load preset/lens profile". Over a project, only the ones loaded
@@ -1431,7 +1439,7 @@ impl GyroflowPluginBaseInstance {
                     if let Some(name) = stab.input_file.read().preset_name.clone() {
                         params.set_string(Params::LoadedPreset, &name)?;
                     }
-                    params.set_string(Params::LoadedLens, &stab.lens.read().get_display_name())?;
+                    params.set_string(Params::LoadedLens, &Self::loaded_lens_name(&stab.lens.read()))?;
                     GyroflowPluginBase::set_input_horizontal_stretch(params, stab.lens.read().input_horizontal_stretch)?;
                     GyroflowPluginBase::set_input_vertical_stretch(params, stab.lens.read().input_vertical_stretch)?;
                 }
@@ -2685,6 +2693,50 @@ mod tests {
         inst.detach(&mut params, &cache).unwrap();
         assert!(inst.ever_changed && inst.managers.is_empty() && cache.lock().is_empty());
         assert_ne!(id(&params), before);
+    }
+
+    #[test]
+    fn zoom_profile_is_embedded_with_its_per_frame_projection() {
+        let mut params = params();
+        let stab = StabilizationManager::default();
+        stab.init_from_video_data(1000.0, 24.0, 24, (3840, 2160));
+        stab.set_size(3840, 2160);
+        let mut profile: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        profile["input_horizontal_stretch"] = serde_json::json!(1.0);
+        profile["input_vertical_stretch"] = serde_json::json!(1.0);
+        profile["calib_dimension"] = serde_json::json!({ "w": 3840, "h": 2160 });
+        profile["orig_dimension"] = profile["calib_dimension"].clone();
+        profile["interpolations"] = serde_json::json!({
+            "28": { "camera_matrix": [[3100.0, 0.0, 1920.0], [0.0, 3100.0, 1080.0], [0.0, 0.0, 1.0]],
+                    "distortion_coeffs": [0.25, 0.0, 0.0, 0.0], "focal_length": 28 },
+            "49": { "camera_matrix": [[5200.0, 0.0, 1920.0], [0.0, 5200.0, 1080.0], [0.0, 0.0, 1.0]],
+                    "distortion_coeffs": [0.50, 0.0, 0.0, 0.0], "focal_length": 49 },
+            "75": { "camera_matrix": [[7800.0, 0.0, 1920.0], [0.0, 7800.0, 1080.0], [0.0, 0.0, 1.0]],
+                    "distortion_coeffs": [0.75, 0.0, 0.0, 0.0], "focal_length": 75 }
+        });
+        params.set_string(Params::EmbeddedLensProfile, &profile.to_string()).unwrap();
+        GyroflowPluginBaseInstance::apply_embedded_presets(&params, &stab, false);
+        assert!(GyroflowPluginBaseInstance::loaded_lens_name(&stab.lens.read()).ends_with("(28-75 mm)"));
+        let mut metadata = gyroflow_core::gyro_source::FileMetadata::default();
+        metadata.lens_positions.extend([(0, 28.0), (250_000, 40.0), (500_000, 75.0)]);
+        let check = |stab: &StabilizationManager| {
+            let compute = ComputeParams::from_manager(stab);
+            for (timestamp, mm, fx) in [(0.0, 28.0, 3100.0), (250.0, 40.0, 4300.0), (500.0, 75.0, 7800.0)] {
+                let (camera, coeffs, _, _, _, focal, source) = FrameTransform::get_lens_data_at_timestamp_with_metadata(&compute, &metadata, timestamp, false);
+                assert_eq!(focal, Some(mm));
+                assert!(source.per_frame);
+                assert!((camera[(0, 0)] - fx).abs() < 1e-6);
+                if mm == 40.0 {
+                    assert!((coeffs[0] - (0.25 + 0.25 * 12.0 / 21.0)).abs() < 1e-6);
+                }
+            }
+        };
+        check(&stab);
+        let project = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None).unwrap();
+        let reopened = StabilizationManager::default();
+        reopened.import_gyroflow_data(project.as_bytes(), true, None, |_| (), Arc::new(AtomicBool::new(false)), &mut false, true).unwrap();
+        reopened.set_size(3840, 2160);
+        check(&reopened);
     }
 
     #[test]

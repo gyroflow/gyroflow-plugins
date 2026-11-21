@@ -69,6 +69,12 @@ You can also apply the plugin on the Edit or Color page - it should work faster 
 In DaVinci Resolve, go to the `Gyroflow (Omni)` plugin settings. Select the `.gyroflow` file in the `Project file` entry.
 If your video file is from GoPro 8+, DJI or Insta360, you can also select video file directly. If it's from Sony or it's BRAW - you can also select the video file directly, but you need to load lens profile or preset after that.
 
+### Zoom lens profiles
+
+In the standalone app, choose **Lens profile → Create zoom profile** and select calibrations from the same lens and recording mode. Confirm the focal lengths and save the combined JSON. Resolve can open it through **Load preset/lens profile** or use a profile embedded in a Gyroflow project.
+
+For automatic selection from a source video, put the JSON in `%LOCALAPPDATA%\Gyroflow\lens_profiles` on Windows. The clip must report the lens, recording mode, and focal lengths covered by the profile. For a fixed-focal-length clip, an exact calibration takes priority. The Inspector shows the range of the loaded zoom profile.
+
 ### Nikon NRAW and R3D NE
 
 Load Nikon `.NEV` (NRAW) or `.R3D` (R3D NE) clips with **Browse** or **Load for current file**.
