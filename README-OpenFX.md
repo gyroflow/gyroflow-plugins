@@ -75,6 +75,21 @@ In the standalone app, choose **Lens profile → Create zoom profile** and selec
 
 For automatic selection from a source video, put the JSON in `%LOCALAPPDATA%\Gyroflow\lens_profiles` on Windows. The clip must report the lens, recording mode, and focal lengths covered by the profile. For a fixed-focal-length clip, an exact calibration takes priority. The Inspector shows the range of the loaded zoom profile.
 
+### Same-folder gyro files
+
+Load the source clip with **Browse** or **Load for current file**. If the clip has no embedded motion,
+the plugin looks alongside it for a matching `.gcsv` or `.csv`. The files must share
+the clip's base name, such as `A001_007_20261119.MOV` and `A001_007_20261119.CSV`. CSV logs must use a
+format Gyroflow understands, such as Sigma's `CAMERA IMU LOG`. Lowercase and uppercase extensions work.
+
+The plugin also reads matching JSON clip metadata. For directly loaded clips, `frame_readout_time`
+(in milliseconds) and `frame_readout_direction` supply the detected rolling shutter setting. You can
+override the time under **Rolling Shutter**. Select the lens calibration with **Load preset/lens profile**.
+
+If the Inspector reports **Not synced**, open the clip in Gyroflow, load the motion log there, sync
+it, and export a `.gyroflow` project with gyro data. Loading that project in the plugin uses its
+saved motion and sync points.
+
 ### Nikon NRAW and R3D NE
 
 Load Nikon `.NEV` (NRAW) or `.R3D` (R3D NE) clips with **Browse** or **Load for current file**.

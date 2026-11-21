@@ -74,7 +74,19 @@ pub enum Params {
     InputVerticalStretch,
     VerticalSqueezeRatio,
     VerticalStretchControlVersion,
+    RollingShutterCompensation,
+    RollingShutterReadout,
+    LensCamera,
+    LensCameraSetting,
+    LensFocalLength,
+    LensHorizontalSqueeze,
+    LensVerticalSqueeze,
+    RollingShutterCompensationOnly,
+    DistortionAwareBorder,
 }
+
+/// A legacy or newly loaded OFX instance still needs the clip's readout value.
+pub const UNSET_ROLLING_SHUTTER_READOUT: f64 = -1.0;
 
 /// Fixed anamorphic squeeze ratio options (index 10 = custom slider).
 pub const ANAMORPHIC_SQUEEZE_OPTIONS: [f64; 10] =
@@ -627,6 +639,8 @@ impl KeyframableParams {
 /// The keyframable parameters each stabilization reads its keyframes from (see `set_keyframe_provider`), by the
 /// stabilization's keyframes, which only the stabilization holds. The `Weak` keeps their address from being reused
 static KEYFRAME_PROVIDERS: std::sync::LazyLock<Mutex<Vec<(Weak<RwLock<KeyframeManager>>, Arc<RwLock<KeyframableParams>>)>>> = std::sync::LazyLock::new(Default::default);
+type SourceCalibration = (Weak<RwLock<gyroflow_core::lens_profile::LensProfile>>, serde_json::Value);
+static SOURCE_CALIBRATIONS: std::sync::LazyLock<Mutex<Vec<SourceCalibration>>> = std::sync::LazyLock::new(Default::default);
 
 /// The keyframable parameters `stab` reads its keyframes from, as set up by `set_keyframe_provider`
 fn keyframe_provider(stab: &StabilizationManager) -> Option<Arc<RwLock<KeyframableParams>>> {
@@ -732,6 +746,10 @@ impl GyroflowPluginBaseInstance {
         let _ = params.set_enabled(Params::Smoothness, loaded);
         let _ = params.set_enabled(Params::ZoomLimit, loaded);
         let _ = params.set_enabled(Params::LensCorrectionStrength, loaded);
+        let _ = params.set_enabled(Params::RollingShutterCompensation, loaded);
+        let _ = params.set_enabled(Params::RollingShutterReadout, loaded);
+        let _ = params.set_enabled(Params::RollingShutterCompensationOnly, loaded);
+        let _ = params.set_enabled(Params::DistortionAwareBorder, loaded);
         let _ = params.set_enabled(Params::HorizonLockAmount, loaded);
         let _ = params.set_enabled(Params::HorizonLockRoll, loaded);
         //let _ = params.set_enabled(Params::PositionX, loaded);
@@ -916,17 +934,33 @@ impl GyroflowPluginBaseInstance {
         let applies = |d: &str| !d.is_empty() && (!over_project || GyroflowPluginBase::loaded_over_project(d));
         if let Ok(d) = params.get_string(Params::EmbeddedLensProfile) {
             if applies(&d) {
-                if let Err(e) = stab.load_lens_profile(&d) {
-                    rfd::MessageDialog::new()
-                        .set_description(&format!("Failed to load lens profile: {e:?}"))
-                        .show();
+                match stab.load_lens_profile(&d) {
+                    Ok(()) if params.get_f64(Params::RollingShutterReadout).is_ok() => {
+                        let (readout, direction) = {
+                            let lens = stab.lens.read();
+                            (lens.frame_readout_time, lens.frame_readout_direction)
+                        };
+                        if let Some(readout) = readout {
+                            use gyroflow_core::stabilization_params::ReadoutDirection;
+                            let mut stabilization = stab.params.write();
+                            stabilization.frame_readout_time = readout.abs();
+                            stabilization.frame_readout_direction = direction.unwrap_or(
+                                if readout < 0.0 { ReadoutDirection::BottomToTop } else { ReadoutDirection::TopToBottom },
+                            );
+                        }
+                    }
+                    Ok(()) => {}
+                    Err(e) => {
+                        rfd::MessageDialog::new()
+                            .set_description(&format!("Failed to load lens profile: {e:?}"))
+                            .show();
+                    }
                 }
             }
         }
-        if let Ok(mut d) = params.get_string(Params::EmbeddedPreset) {
-            if !applies(&d) {
-                return;
-            }
+        if let Ok(mut d) = params.get_string(Params::EmbeddedPreset)
+            && applies(&d)
+        {
             // Earlier versions embedded projects whole. One of this clip still loads whole, of another its settings do
             if let Some(video) = GyroflowPluginBase::project_video_file(&d) {
                 let url = |x: &str| if x.contains("://") { x.to_owned() } else { filesystem::path_to_url(x) };
@@ -943,6 +977,86 @@ impl GyroflowPluginBaseInstance {
                         .show();
                 }
             }
+        }
+        if params.get_f64(Params::RollingShutterReadout).is_ok() {
+            let readout = Self::sony_metadata_readout(stab).or_else(|| {
+                if over_project { None } else { video_metadata::sidecar_readout(stab) }
+            });
+            if let Some((time, direction)) = readout {
+                // Apply source readout after the lens profile and preset.
+                let mut stabilization = stab.params.write();
+                stabilization.frame_readout_time = time;
+                stabilization.frame_readout_direction = direction;
+            }
+        }
+    }
+
+    fn sony_metadata_readout(stab: &StabilizationManager) -> Option<(f64, gyroflow_core::stabilization_params::ReadoutDirection)> {
+        let gyro = stab.gyro.read();
+        // A separate motion-only source does not describe the video's sensor readout.
+        if !gyro.all_metadata {
+            return None;
+        }
+        let metadata = gyro.file_metadata.read();
+        let is_sony = metadata.detected_source.as_deref()
+            .and_then(|source| source.split_whitespace().next()) == Some("Sony");
+        let time = metadata.frame_readout_time.filter(|time| is_sony && time.is_finite() && *time > 0.0)?;
+        Some((time, metadata.frame_readout_direction))
+    }
+
+    fn update_lens_info(params: &mut dyn GyroflowPluginParams, stab: &StabilizationManager) -> PluginResult<()> {
+        let sidecar = video_metadata::sidecar_metadata(stab);
+        let lens = stab.lens.read();
+        let field = |key: &str| sidecar[key].as_str().unwrap_or_default().trim();
+        let camera = if lens.camera_brand.trim().is_empty() && lens.camera_model.trim().is_empty() {
+            [field("camera_brand"), field("camera_model")]
+        } else {
+            [lens.camera_brand.trim(), lens.camera_model.trim()]
+        }
+            .into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" | ");
+        let focal_length = lens.focal_length.or_else(|| sidecar["focal_length"].as_f64())
+            .map_or_else(String::new, |mm| format!("{mm}mm"));
+        let squeeze = |value: f64| {
+            if value > 0.0 { format!("{value:?}x") } else { String::new() }
+        };
+        let camera_setting = if lens.camera_setting.trim().is_empty() {
+            field("camera_setting").to_owned()
+        } else {
+            lens.camera_setting.clone()
+        };
+        let horizontal_squeeze = squeeze(lens.input_horizontal_stretch);
+        let vertical_squeeze = squeeze(lens.input_vertical_stretch);
+        drop(lens);
+        params.set_string(Params::LensCamera, &camera)?;
+        params.set_string(Params::LensCameraSetting, &camera_setting)?;
+        params.set_string(Params::LensFocalLength, &focal_length)?;
+        params.set_string(Params::LensHorizontalSqueeze, &horizontal_squeeze)?;
+        params.set_string(Params::LensVerticalSqueeze, &vertical_squeeze)
+    }
+
+    fn rolling_shutter_readout(params: &dyn GyroflowPluginParams, source_readout: f64) -> f64 {
+        match params.get_bool(Params::RollingShutterCompensation) {
+            Ok(false) => 0.0,
+            Ok(true) => params.get_f64(Params::RollingShutterReadout).ok()
+                .filter(|value| value.is_finite() && *value >= 0.0).unwrap_or(source_readout),
+            Err(_) => source_readout,
+        }
+    }
+
+    fn rolling_shutter_matches(params: &dyn GyroflowPluginParams, stab: &StabilizationManager) -> bool {
+        let readout = stab.params.read().frame_readout_time;
+        Self::rolling_shutter_readout(params, readout) == readout
+    }
+
+    fn update_rolling_shutter(params: &dyn GyroflowPluginParams, stab: &StabilizationManager) {
+        let mut stabilization = stab.params.write();
+        let readout = Self::rolling_shutter_readout(params, stabilization.frame_readout_time);
+        if readout != stabilization.frame_readout_time {
+            stabilization.frame_readout_time = readout;
+            drop(stabilization);
+            stab.refresh_optical_correction();
+            // Zoom limiting can have reduced the smoothed motion using the previous readout time.
+            stab.invalidate_blocking_smoothing();
         }
     }
 
@@ -1083,7 +1197,6 @@ impl GyroflowPluginBaseInstance {
                 Params::Zooming => {
                     v.set_adaptive_zoom(Self::zooming_window(params));
                     v.invalidate_blocking_smoothing();
-                    v.invalidate_blocking_zooming();
                 }
                 Params::IntegrationMethod => {
                     if let Ok(im) = params.get_i32(Params::IntegrationMethod) {
@@ -1103,6 +1216,9 @@ impl GyroflowPluginBaseInstance {
                 Params::LensCorrectionStrength => {
                     v.invalidate_blocking_zooming();
                 },
+                Params::RollingShutterCompensation | Params::RollingShutterReadout => {
+                    Self::update_rolling_shutter(params, v);
+                }
                 Params::Rotation | Params::InputRotation => {
                     self.apply_rotation(params, v, self.last_out_size);
                     v.invalidate_blocking_zooming();
@@ -1124,7 +1240,50 @@ impl GyroflowPluginBaseInstance {
     /// stretch axes, and the instance id.
     /// The instances that share it share the instance id (see `ever_changed`)
     pub fn stab_key(params: &dyn GyroflowPluginParams) -> PluginResult<String> {
-        Ok(format!("{}{}:{}:{}", params.get_string(Params::ProjectPath)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params), GyroflowPluginBase::get_vertical_stretch(params)))
+        Ok(format!("{}{}:{}:{}:{}", params.get_string(Params::ProjectPath)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params), GyroflowPluginBase::get_vertical_stretch(params), Self::uses_calibrated_source(params)))
+    }
+
+    pub fn distortion_aware_border(params: &dyn GyroflowPluginParams) -> bool {
+        params.get_bool(Params::DistortionAwareBorder).unwrap_or(true)
+    }
+
+    fn uses_calibrated_source(params: &dyn GyroflowPluginParams) -> bool {
+        // Compensation-only builds its own rectangular renderer from the calibrated source.
+        Self::distortion_aware_border(params) || params.get_bool(Params::RollingShutterCompensationOnly).unwrap_or_default()
+    }
+
+    fn use_rectangular_border(stab: &StabilizationManager) {
+        let mut lens = stab.lens.write();
+        if let Ok(calibration) = lens.get_json_value() {
+            Self::remember_calibration(stab, calibration);
+        }
+        let mut rectangular = gyroflow_core::lens_profile::LensProfile::default();
+        rectangular.calib_dimension = lens.calib_dimension.clone();
+        rectangular.fisheye_params.camera_matrix = lens.fisheye_params.camera_matrix.clone();
+        // Four explicit zeros select the pinhole path and block per-frame distortion coefficients.
+        rectangular.fisheye_params.distortion_coeffs = vec![0.0; 4];
+        rectangular.focal_length = lens.focal_length;
+        *lens = rectangular;
+    }
+
+    fn remember_calibration(stab: &StabilizationManager, calibration: serde_json::Value) {
+        let mut calibrations = SOURCE_CALIBRATIONS.lock();
+        calibrations.retain(|(owner, _)| owner.strong_count() > 0);
+        calibrations.push((Arc::downgrade(&stab.lens), calibration));
+    }
+
+    fn source_calibration(stab: &StabilizationManager) -> Option<serde_json::Value> {
+        SOURCE_CALIBRATIONS.lock().iter()
+            .find(|(owner, _)| std::ptr::eq(owner.as_ptr(), Arc::as_ptr(&stab.lens)))
+            .map(|(_, calibration)| calibration.clone())
+    }
+
+    fn export_embedded_project(stab: &StabilizationManager) -> PluginResult<String> {
+        let data = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None)?;
+        let Some(calibration) = Self::source_calibration(stab) else { return Ok(data); };
+        let mut project: serde_json::Value = serde_json::from_str(&data)?;
+        project["calibration_data"] = calibration;
+        Ok(serde_json::to_string(&project)?)
     }
 
     /// Whether an edit of `param` changes what the instance sets up its stabilization with (see `configure`), which it
@@ -1134,6 +1293,7 @@ impl GyroflowPluginBaseInstance {
             Params::Fov | Params::Smoothness | Params::ZoomLimit | Params::LensCorrectionStrength |
             Params::HorizonLockAmount | Params::HorizonLockRoll | Params::AdditionalPitch | Params::AdditionalYaw |
             Params::Rotation | Params::InputRotation | Params::VideoSpeed | Params::Zooming | Params::IntegrationMethod |
+            Params::RollingShutterCompensation | Params::RollingShutterReadout |
             Params::UseGyroflowsKeyframes | Params::RecalculateKeyframes |
             Params::OutputWidth | Params::OutputHeight | Params::OutputSizeSwap | Params::OutputSizeToTimeline |
             Params::ToggleOverview | Params::DontDrawOutside | Params::Interpolation)
@@ -1172,6 +1332,7 @@ impl GyroflowPluginBaseInstance {
             self.num_frames = gf_params.frame_count;
             self.fps = gf_params.fps;
         }
+        Self::update_rolling_shutter(params, stab);
         // Preserve stored-pixel geometry and the full source framing in anamorphic mode.
         // Use the public core API: upstream has no plugin-specific squeeze_ratio field.
         stab.set_input_horizontal_stretch(1.0);
@@ -1239,10 +1400,11 @@ impl GyroflowPluginBaseInstance {
         let overview = gf_params.fov_overview == params.get_bool(Params::ToggleOverview).unwrap_or_default();
         let zooming = gf_params.adaptive_zoom_window == Self::zooming_window(params);
         drop(gf_params);
+        let readout = Self::rolling_shutter_matches(params, stab);
         let integration = params.get_i32(Params::IntegrationMethod).map_or(true, |x| stab.gyro.read().integration_method == x as usize);
         let interpolation = stab.stabilization.read().interpolation as u32 == Self::interpolation(params) as u32;
 
-        keyframes && output_size && overview && zooming && integration && interpolation
+        keyframes && output_size && overview && zooming && readout && integration && interpolation
     }
 
     /// Gives the instance a stabilization of its own, under a new instance id, to change from now on. It shared it with
@@ -1262,6 +1424,9 @@ impl GyroflowPluginBaseInstance {
             let key = Self::stab_key(params)?;
             log::info!("Forking the shared stabilization for key: {key}");
             let stab = shared.get_cloned();
+            if let Some(calibration) = Self::source_calibration(&shared) {
+                Self::remember_calibration(&stab, calibration);
+            }
             Self::setup_renderer(params, &stab);
             self.configure(params, &stab, self.last_out_size, false)?;
             let stab = Arc::new(stab);
@@ -1297,7 +1462,8 @@ impl GyroflowPluginBaseInstance {
         }
 
         let key = Self::stab_key(params)?;
-        let cloned = manager_cache.lock().get(&key).map(Arc::clone);
+        let needs_readout = matches!(params.get_f64(Params::RollingShutterReadout), Ok(UNSET_ROLLING_SHUTTER_READOUT));
+        let cloned = if needs_readout { None } else { manager_cache.lock().get(&key).map(Arc::clone) };
         let stab = if let Some(stab) = cloned {
             // First used by this instance: its own, set up before the instance was restored, or shared with the instances
             // copied with it, which set it up
@@ -1313,6 +1479,24 @@ impl GyroflowPluginBaseInstance {
                 }
                 // Cache it in this instance as well
                 self.managers.put(key.to_owned(), stab.clone());
+            } else {
+                let readout_changed = !Self::rolling_shutter_matches(params, &stab);
+                let zooming_window = Self::zooming_window(params);
+                let zooming_changed = stab.params.read().adaptive_zoom_window != zooming_window;
+                if readout_changed || zooming_changed {
+                    // A restored or edited host value can reach render without a user-edited callback.
+                    if !self.ever_changed {
+                        self.detach(params, manager_cache)?;
+                        return self.stab_manager(params, manager_cache, out_size, open_gyroflow_if_no_data);
+                    }
+                    if readout_changed {
+                        Self::update_rolling_shutter(params, &stab);
+                    }
+                    if zooming_changed {
+                        stab.set_adaptive_zoom(zooming_window);
+                        stab.invalidate_blocking_smoothing();
+                    }
+                }
             }
             stab
         } else {
@@ -1354,7 +1538,7 @@ impl GyroflowPluginBaseInstance {
                             stab.params.write().video_rotation = r;
                         }
                         if params.get_bool(Params::IncludeProjectData)? {
-                            if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                            if let Ok(data) = Self::export_embedded_project(&stab) {
                                 params.set_string(Params::ProjectData, &data)?;
                             }
                         }
@@ -1372,6 +1556,9 @@ impl GyroflowPluginBaseInstance {
                                 self.update_loaded_state(params, false);
                                 format!("load_gyro_data error: {e}")
                             })?;
+                            if params.get_f64(Params::RollingShutterReadout).is_ok() {
+                                Self::apply_embedded_presets(params, &stab, false);
+                            }
                         } else {
                             log::error!("An error occured: {e:?}");
                             self.update_loaded_state(params, false);
@@ -1517,6 +1704,16 @@ impl GyroflowPluginBaseInstance {
 
             self.update_loaded_state(params, loaded);
 
+            if loaded && params.get_f64(Params::RollingShutterReadout).is_ok() {
+                Self::update_lens_info(params, &stab)?;
+                if needs_readout {
+                    let readout = stab.params.read().frame_readout_time.abs();
+                    params.set_f64(Params::RollingShutterReadout, readout)?;
+                }
+            }
+            if !Self::uses_calibrated_source(params) {
+                Self::use_rectangular_border(&stab);
+            }
             self.configure(params, &stab, out_size, true)?;
 
             let stab = Arc::new(stab);
@@ -1584,6 +1781,9 @@ impl GyroflowPluginBaseInstance {
     fn pick_project(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, path: &str) -> PluginResult<()> {
         params.set_string(Params::ProjectPath, path)?;
         params.set_string(Params::ProjectData, "")?;
+        if params.get_f64(Params::RollingShutterReadout).is_ok() {
+            params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT)?;
+        }
         self.reload_values_from_project = true;
         self.keep_adjustments = false;
         self.clear_stab(manager_cache);
@@ -1650,6 +1850,10 @@ impl GyroflowPluginBaseInstance {
                             }
                         } else {
                             params.set_string(Params::EmbeddedPreset, &mark(contents))?;
+                        }
+                        if params.get_f64(Params::RollingShutterReadout).is_ok() {
+                            params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT)?;
+                            params.set_string(Params::InstanceId, &format!("{}", fastrand::u64(..)))?;
                         }
                         self.reload_values_from_project = true;
                     }
@@ -1724,6 +1928,11 @@ impl GyroflowPluginBaseInstance {
             self.keep_adjustments = false;
         }
         if param == Params::ProjectPath || param == Params::ReloadProject || param == Params::DontDrawOutside {
+            if (param == Params::ReloadProject || (param == Params::ProjectPath && user_edited))
+                && params.get_f64(Params::RollingShutterReadout).is_ok()
+            {
+                params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT)?;
+            }
             if param == Params::ProjectPath || param == Params::ReloadProject {
                 self.reload_values_from_project = true;
             }
@@ -1748,7 +1957,7 @@ impl GyroflowPluginBaseInstance {
                             params.set_string(Params::ProjectData, &data)?;
                         } else {
                             if let Some((_, stab)) = self.managers.peek_lru() {
-                                if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                                if let Ok(data) = Self::export_embedded_project(stab) {
                                     params.set_string(Params::ProjectData, &data)?;
                                 }
                             }
@@ -1758,7 +1967,7 @@ impl GyroflowPluginBaseInstance {
                     }
                 } else {
                     if let Some((_, stab)) = self.managers.peek_lru() {
-                        if let Ok(data) = stab.export_gyroflow_data(gyroflow_core::GyroflowProjectType::WithGyroData, "{}", None) {
+                        if let Ok(data) = Self::export_embedded_project(stab) {
                             params.set_string(Params::ProjectData, &data)?;
                         }
                     }
@@ -1797,6 +2006,9 @@ impl GyroflowPluginBaseInstance {
                     self.cache_keyframes(params, use_gyroflows_keyframes, self.num_frames, self.fps.max(1.0));
                     self.recompute_for(params, param, use_gyroflows_keyframes);
                     params.set_string(Params::Status, "OK")?;
+                },
+                Params::RollingShutterCompensation | Params::RollingShutterReadout => {
+                    self.recompute_for(params, param, false);
                 },
                 _ => { }
             }
@@ -2031,10 +2243,20 @@ mod tests {
         fn set_label(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
         fn set_hint(&mut self, _: Params, _: &str) -> PluginResult<()> { Ok(()) }
         fn set_f64(&mut self, p: Params, v: f64) -> PluginResult<()> { self.f64s.insert(p, v); Ok(()) }
-        fn get_f64(&self, p: Params) -> PluginResult<f64> { Ok(self.f64s.get(&p).copied().unwrap_or_default()) }
+        fn get_f64(&self, p: Params) -> PluginResult<f64> {
+            if p == Params::RollingShutterReadout {
+                return self.f64s.get(&p).copied().ok_or_else(|| "not set".into());
+            }
+            Ok(self.f64s.get(&p).copied().unwrap_or_default())
+        }
         fn get_f64_at_time(&self, p: Params, _: TimeType) -> PluginResult<f64> { self.get_f64(p) }
         fn set_bool(&mut self, p: Params, v: bool) -> PluginResult<()> { self.bools.insert(p, v); Ok(()) }
-        fn get_bool(&self, p: Params) -> PluginResult<bool> { Ok(self.bools.get(&p).copied().unwrap_or_default()) }
+        fn get_bool(&self, p: Params) -> PluginResult<bool> {
+            if matches!(p, Params::RollingShutterCompensation | Params::RollingShutterCompensationOnly | Params::DistortionAwareBorder) {
+                return self.bools.get(&p).copied().ok_or_else(|| "not set".into());
+            }
+            Ok(self.bools.get(&p).copied().unwrap_or_default())
+        }
         fn get_bool_at_time(&self, p: Params, _: TimeType) -> PluginResult<bool> { self.get_bool(p) }
         fn set_string(&mut self, p: Params, v: &str) -> PluginResult<()> { self.strings.insert(p, v.into()); Ok(()) }
         fn get_string(&self, p: Params) -> PluginResult<String> { Ok(self.strings.get(&p).cloned().unwrap_or_default()) }
@@ -2544,6 +2766,39 @@ mod tests {
     }
 
     #[test]
+    fn border_preference_survives_rolling_shutter_only_override() {
+        let mut params = params();
+        let cache = cache();
+        let lens: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        let original = &lens["fisheye_params"]["distortion_coeffs"];
+        params.set_bool(Params::IncludeProjectData, true).unwrap();
+        params.set_string(Params::ProjectData, &serde_json::json!({
+            "version": 4,
+            "video_info": { "width": 5760, "height": 2160, "fps": 24.0, "duration_ms": 1000.0, "num_frames": 24 },
+            "calibration_data": lens,
+        }).to_string()).unwrap();
+        let mut instance = GyroflowPluginBaseInstance { reload_values_from_project: false, ..Default::default() };
+        let size = (1920, 720);
+        let calibrated = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert_eq!(serde_json::json!(calibrated.lens.read().fisheye_params.distortion_coeffs), *original);
+
+        params.set_bool(Params::DistortionAwareBorder, false).unwrap();
+        let rectangular = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert_eq!(rectangular.lens.read().fisheye_params.distortion_coeffs, vec![0.0; 4]);
+        let embedded = GyroflowPluginBaseInstance::export_embedded_project(&rectangular).unwrap();
+        let embedded: serde_json::Value = serde_json::from_str(&embedded).unwrap();
+        assert_eq!(embedded["calibration_data"]["fisheye_params"]["distortion_coeffs"], *original);
+
+        params.set_bool(Params::RollingShutterCompensationOnly, true).unwrap();
+        let source = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert!(Arc::ptr_eq(&source, &calibrated));
+        assert!(!params.get_bool(Params::DistortionAwareBorder).unwrap());
+        params.set_bool(Params::RollingShutterCompensationOnly, false).unwrap();
+        let restored = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert!(Arc::ptr_eq(&restored, &rectangular));
+    }
+
+    #[test]
     fn zooming_edits_and_restore_work_with_anamorphic_framing() {
         let cache = cache();
         let mut params = params();
@@ -2560,6 +2815,175 @@ mod tests {
         let mut restored = GyroflowPluginBaseInstance::default();
         let stab = restored.stab_manager(&mut params, &cache, (1920, 1080), false).unwrap();
         assert_eq!(stab.params.read().adaptive_zoom_window, -1.0);
+    }
+
+    #[test]
+    fn sony_video_readout_takes_precedence_over_manual_lens() {
+        use gyroflow_core::{gyro_source::FileMetadata, stabilization_params::ReadoutDirection};
+
+        let mut params = params();
+        params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT).unwrap();
+        let mut lens: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        lens["frame_readout_time"] = serde_json::json!(18.418);
+        params.set_string(Params::EmbeddedLensProfile, &lens.to_string()).unwrap();
+
+        for (source, time, is_video, expected_time, expected_direction) in [
+            ("Sony ILME-FX5", Some(8.566), true, 8.566, ReadoutDirection::BottomToTop),
+            ("Sony ILME-FX5", Some(8.566), false, 18.418, ReadoutDirection::TopToBottom),
+            ("Sony ILME-FX5", None, true, 18.418, ReadoutDirection::TopToBottom),
+            ("Canon", Some(8.566), true, 18.418, ReadoutDirection::TopToBottom),
+        ] {
+            let stab = StabilizationManager::default();
+            {
+                let mut gyro = stab.gyro.write();
+                gyro.all_metadata = is_video;
+                gyro.file_metadata = FileMetadata {
+                    detected_source: Some(source.into()),
+                    frame_readout_time: time,
+                    frame_readout_direction: ReadoutDirection::BottomToTop,
+                    ..Default::default()
+                }.into();
+            }
+            GyroflowPluginBaseInstance::apply_embedded_presets(&params, &stab, false);
+            assert_eq!(stab.lens.read().frame_readout_time, Some(18.418));
+            let stabilization = stab.params.read();
+            assert_eq!(stabilization.frame_readout_time, expected_time);
+            assert_eq!(stabilization.frame_readout_direction as i32, expected_direction as i32);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a Sony clip with embedded readout metadata"]
+    fn sony_clip_initializes_ofx_readout_from_metadata() {
+        let mut params = params();
+        let path = std::env::var("GYROFLOW_SONY_READOUT_SAMPLE").unwrap();
+        let expected: f64 = std::env::var("GYROFLOW_SONY_READOUT_MS").unwrap().parse().unwrap();
+        params.set_string(Params::ProjectPath, &path).unwrap();
+        params.set_bool(Params::RollingShutterCompensation, true).unwrap();
+        params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT).unwrap();
+        params.set_f64(Params::VideoSpeed, 100.0).unwrap();
+        let mut lens: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        lens["frame_readout_time"] = serde_json::json!(99.0);
+        params.set_string(Params::EmbeddedLensProfile, &lens.to_string()).unwrap();
+
+        let mut instance = GyroflowPluginBaseInstance { reload_values_from_project: false, ..Default::default() };
+        let stab = instance.stab_manager(&mut params, &cache(), (1920, 1080), false).unwrap();
+        assert_eq!(params.get_f64(Params::RollingShutterReadout).unwrap(), expected);
+        assert_eq!(stab.params.read().frame_readout_time, expected);
+        assert_eq!(stab.lens.read().frame_readout_time, Some(99.0));
+    }
+
+    #[test]
+    fn clip_json_initializes_ofx_readout_and_preserves_a_manual_value() {
+        use gyroflow_core::stabilization_params::ReadoutDirection;
+
+        let directory = std::env::temp_dir().join(format!("gyroflow-readout-{}", fastrand::u64(..)));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("clip.MOV");
+        let sidecar = path.with_extension("JSON");
+        std::fs::write(&path, include_bytes!("../tests/fixtures/video-timing.mp4")).unwrap();
+        std::fs::write(&sidecar, br#"{"frame_readout_time":15.237,"frame_readout_direction":"RightToLeft"}"#).unwrap();
+
+        let mut params = params();
+        params.set_string(Params::ProjectPath, &path.to_string_lossy()).unwrap();
+        params.set_bool(Params::RollingShutterCompensation, true).unwrap();
+        params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT).unwrap();
+        params.set_f64(Params::VideoSpeed, 100.0).unwrap();
+        let mut lens: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        lens["frame_readout_time"] = serde_json::json!(18.418);
+        params.set_string(Params::EmbeddedLensProfile, &lens.to_string()).unwrap();
+        let size = (16, 16);
+        let stab = GyroflowPluginBaseInstance::default().stab_manager(&mut params, &cache(), size, false).unwrap();
+        assert_eq!(params.get_f64(Params::RollingShutterReadout).unwrap(), 15.237);
+        assert_eq!(stab.params.read().frame_readout_time, 15.237);
+        assert!(matches!(stab.params.read().frame_readout_direction, ReadoutDirection::RightToLeft));
+
+        params.set_f64(Params::RollingShutterReadout, 9.75).unwrap();
+        let stab = GyroflowPluginBaseInstance::default().stab_manager(&mut params, &cache(), size, false).unwrap();
+        assert_eq!(params.get_f64(Params::RollingShutterReadout).unwrap(), 9.75);
+        assert_eq!(stab.params.read().frame_readout_time, 9.75);
+        assert!(matches!(stab.params.read().frame_readout_direction, ReadoutDirection::RightToLeft));
+
+        std::fs::remove_file(sidecar).unwrap();
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn manual_lens_readout_and_inspector_controls() {
+        use gyroflow_core::stabilization_params::ReadoutDirection;
+
+        let cache = cache();
+        let mut params = params();
+        params.set_bool(Params::IncludeProjectData, true).unwrap();
+        params.set_bool(Params::RollingShutterCompensation, true).unwrap();
+        params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT).unwrap();
+        params.set_f64(Params::VideoSpeed, 100.0).unwrap();
+        params.set_string(Params::ProjectData, &serde_json::json!({
+            "version": 4,
+            "video_info": { "width": 5760, "height": 2160, "fps": 24.0, "duration_ms": 1000.0, "num_frames": 24 },
+            "stabilization": { "frame_readout_time": 7.0 },
+        }).to_string()).unwrap();
+        let mut lens: serde_json::Value = serde_json::from_str(include_str!("../tests/fixtures/sony_aivascope_1_5x.json")).unwrap();
+        lens["frame_readout_time"] = serde_json::json!(-12.5);
+        lens["camera_setting"] = serde_json::json!("Open gate");
+        lens["focal_length"] = serde_json::json!(43.0);
+        lens["input_horizontal_stretch"] = serde_json::json!(2.0);
+        params.set_string(Params::EmbeddedLensProfile, &GyroflowPluginBase::mark_loaded_over_project(&lens.to_string())).unwrap();
+        let mut instance = GyroflowPluginBaseInstance { reload_values_from_project: false, ..Default::default() };
+        let size = (1920, 1080);
+        let stab = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+
+        assert_eq!(params.get_f64(Params::RollingShutterReadout).unwrap(), 12.5);
+        assert_eq!(stab.params.read().frame_readout_time, 12.5);
+        assert!(matches!(stab.params.read().frame_readout_direction, ReadoutDirection::BottomToTop));
+        for (param, value) in [
+            (Params::LensCamera, "Sony | ILCE-9M3"),
+            (Params::LensCameraSetting, "Open gate"),
+            (Params::LensFocalLength, "43mm"),
+            (Params::LensHorizontalSqueeze, "2.0x"),
+            (Params::LensVerticalSqueeze, "1.0x"),
+        ] {
+            assert_eq!(params.get_string(param).unwrap(), value);
+        }
+
+        let render_matrix_count = |manager: &StabilizationManager| {
+            let size = (192, 72, 192 * 4);
+            let mut input = vec![255; size.1 * size.2];
+            let mut output = vec![0; input.len()];
+            let mut buffers = Buffers {
+                input: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut input }, ..Default::default() },
+                output: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut output }, ..Default::default() },
+            };
+            manager.stabilization.write().set_device(-1);
+            manager.process_pixels::<RGBA8>(0, None, &mut buffers).unwrap();
+            manager.stabilization.read().get_frame_transform_at::<RGBA8>(0, None, &buffers).matrices.len()
+        };
+        assert!(render_matrix_count(&stab) > 1);
+
+        // Resolve can supply a changed value on a cached instance without a user-edited callback.
+        params.set_bool(Params::RollingShutterCompensation, false).unwrap();
+        let disabled = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert_eq!(disabled.params.read().frame_readout_time, 0.0);
+        assert_eq!(render_matrix_count(&disabled), 1);
+        assert_eq!(stab.params.read().frame_readout_time, 12.5);
+        assert_eq!(params.get_f64(Params::RollingShutterReadout).unwrap(), 12.5);
+
+        params.set_f64(Params::RollingShutterReadout, 9.75).unwrap();
+        instance.param_changed(&mut params, &cache, Params::RollingShutterReadout, true).unwrap();
+        params.set_bool(Params::RollingShutterCompensation, true).unwrap();
+        instance.param_changed(&mut params, &cache, Params::RollingShutterCompensation, true).unwrap();
+        assert_eq!(disabled.params.read().frame_readout_time, 9.75);
+        assert!(render_matrix_count(&disabled) > 1);
+
+        params.set_bool(Params::RollingShutterCompensation, false).unwrap();
+        let same_manager = instance.stab_manager(&mut params, &cache, size, false).unwrap();
+        assert!(Arc::ptr_eq(&same_manager, &disabled));
+        assert_eq!(render_matrix_count(&same_manager), 1);
+
+        params.set_bool(Params::RollingShutterCompensation, true).unwrap();
+        let reopened = instance.stab_manager(&mut params, &self::cache(), size, false).unwrap();
+        assert_eq!(reopened.params.read().frame_readout_time, 9.75);
     }
 
     #[test]

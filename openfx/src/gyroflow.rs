@@ -4,6 +4,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use ofx::*;
 use super::fuscript::*;
 use gyroflow_plugin_base::*;
+use gyroflow_core::stabilization_params::StabilizationParams;
 use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
 
@@ -46,12 +47,20 @@ define_params!(ParamHandler {
         LoadedProject       => loaded_project:   ParamHandle<String>,
         LoadedPreset        => loaded_preset:    ParamHandle<String>,
         LoadedLens          => loaded_lens:      ParamHandle<String>,
+        LensCamera          => lens_camera:     ParamHandle<String>,
+        LensCameraSetting   => lens_camera_setting: ParamHandle<String>,
+        LensFocalLength     => lens_focal_length: ParamHandle<String>,
+        LensHorizontalSqueeze => lens_horizontal_squeeze: ParamHandle<String>,
+        LensVerticalSqueeze => lens_vertical_squeeze: ParamHandle<String>,
     ],
     bools: [
         ToggleOverview        => toggle_overview:         ParamHandle<bool>,
         DontDrawOutside       => dont_draw_outside:       ParamHandle<bool>,
         IncludeProjectData    => include_project_data:    ParamHandle<bool>,
         UseGyroflowsKeyframes => use_gyroflows_keyframes: ParamHandle<bool>,
+        RollingShutterCompensation => rolling_shutter_compensation: ParamHandle<bool>,
+        RollingShutterCompensationOnly => rolling_shutter_compensation_only: ParamHandle<bool>,
+        DistortionAwareBorder => distortion_aware_border: ParamHandle<bool>,
     ],
     f64s: [
         InputRotation         => input_rotation:           ParamHandle<Double>,
@@ -59,6 +68,7 @@ define_params!(ParamHandler {
         Smoothness            => smoothness:               ParamHandle<Double>,
         ZoomLimit             => zoom_limit:               ParamHandle<Double>,
         LensCorrectionStrength=> lens_correction_strength: ParamHandle<Double>,
+        RollingShutterReadout => rolling_shutter_readout: ParamHandle<Double>,
         HorizonLockAmount     => horizon_lock_amount:      ParamHandle<Double>,
         HorizonLockRoll       => horizon_lock_roll:        ParamHandle<Double>,
         // PositionX             => positionx:                ParamHandle<Double>,
@@ -120,9 +130,168 @@ struct InstanceData {
     supports_output_size: bool,
     is_fusion_page: bool,
     file_path: Option<String>,
+    uncropped_renderer: Option<StabilizationManager>,
+    rolling_shutter_renderer: Option<(Arc<StabilizationManager>, StabilizationManager)>,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
+}
+
+fn uncropped_source_renderer(cache: &mut Option<StabilizationManager>, size: (usize, usize)) -> &StabilizationManager {
+    let renderer = cache.get_or_insert_with(|| {
+        let stab = StabilizationManager::default();
+        let mut engine = stab.stabilization.write();
+        engine.share_wgpu_instances = true;
+        engine.interpolation = Interpolation::Bilinear;
+        drop(engine);
+        stab
+    });
+    if renderer.params.read().size != size {
+        renderer.init_from_video_data(1000.0, 1.0, 1, size);
+        renderer.set_size(size.0, size.1);
+        renderer.set_output_size(size.0, size.1);
+        renderer.recompute_undistortion();
+    }
+    renderer
+}
+
+fn rolling_shutter_only_renderer<'a>(
+    cache: &'a mut Option<(Arc<StabilizationManager>, StabilizationManager)>,
+    source: &Arc<StabilizationManager>,
+    input_rotation: f64,
+) -> &'a StabilizationManager {
+    let params = source.params.read();
+    let gyro = source.gyro.read();
+    let reusable = cache.as_ref().is_some_and(|(parent, renderer)| {
+        let configured = renderer.params.read();
+        Arc::ptr_eq(parent, source)
+            && Arc::ptr_eq(&renderer.gyro.read().quaternions, &gyro.quaternions)
+            && configured.frame_readout_time == params.frame_readout_time
+            && configured.frame_readout_direction as i32 == params.frame_readout_direction as i32
+            && configured.video_rotation == input_rotation
+    });
+    if !reusable {
+        let mut motion = gyro.clone();
+        drop(gyro);
+        // Identity smoothing correction leaves the row-to-frame-centre rotation intact.
+        motion.smoothed_quaternions = Arc::default();
+        {
+            let original = motion.file_metadata.read();
+            let mut timing = original.thin();
+            timing.per_frame_time_offsets = original.per_frame_time_offsets.clone();
+            timing.lens_params = original.lens_params.clone();
+            timing.digital_zoom = None;
+            drop(original);
+            motion.file_metadata = timing.into();
+        }
+        let mut settings = StabilizationParams {
+            size: params.size,
+            fps: params.fps,
+            fps_scale: params.fps_scale,
+            duration_ms: params.duration_ms,
+            frame_count: params.frame_count,
+            frame_times: params.frame_times.clone(),
+            frame_offset: params.frame_offset,
+            frame_readout_time: params.frame_readout_time,
+            frame_readout_direction: params.frame_readout_direction,
+            framebuffer_inverted: params.framebuffer_inverted,
+            video_rotation: input_rotation,
+            adaptive_zoom_window: 0.0,
+            max_zoom: None,
+            lens_correction_amount: 0.0,
+            lens_breathing_enabled: false,
+            ..Default::default()
+        };
+        drop(params);
+        let (camera, ..) = FrameTransform::get_lens_data_at_timestamp(&ComputeParams::from_manager(source), 0.0, false);
+        let (width, height) = GyroflowPluginBase::rotated_size(settings.size, input_rotation);
+        settings.output_size = if GyroflowPluginBase::is_quarter_turn(input_rotation) {
+            let focal_ratio = camera[(0, 0)] / camera[(1, 1)];
+            ((width as f64 * focal_ratio.powi(2)).round().max(1.0) as usize, height)
+        } else {
+            (width, height)
+        };
+        let size = settings.size;
+        let renderer = StabilizationManager::default();
+        *renderer.params.write() = settings;
+        *renderer.gyro.write() = motion;
+        {
+            let mut lens = renderer.lens.write();
+            lens.calib_dimension.w = size.0 as _;
+            lens.calib_dimension.h = size.1 as _;
+            lens.fisheye_params.camera_matrix = (0..3).map(|row| [
+                camera[(row, 0)], camera[(row, 1)], camera[(row, 2)],
+            ]).collect();
+            // Pinhole projection keeps the nominal image boundary rectangular.
+            lens.fisheye_params.distortion_coeffs = vec![0.0; 4];
+        }
+        {
+            let mut engine = renderer.stabilization.write();
+            engine.share_wgpu_instances = true;
+            engine.interpolation = source.stabilization.read().interpolation;
+        }
+        renderer.init_size();
+        renderer.recompute_undistortion();
+        *cache = Some((source.clone(), renderer));
+    }
+    &cache.as_ref().expect("rolling shutter renderer initialized").1
+}
+
+#[test]
+fn rolling_shutter_only_preserves_frame_centre_motion() {
+    use gyroflow_core::gyro_source::Quat64;
+
+    let source = Arc::new(StabilizationManager::default());
+    let size = (32, 24, 32 * 4);
+    source.init_from_video_data(1000.0, 25.0, 25, (size.0, size.1));
+    source.set_output_size(size.0, size.1);
+    source.set_frame_readout_time(20.0);
+    source.set_fov(0.5);
+    source.lens.write().fisheye_params.distortion_coeffs = vec![0.2; 4];
+    {
+        let mut gyro = source.gyro.write();
+        gyro.duration_ms = 1000.0;
+        gyro.quaternions = Arc::new([
+            (0, Quat64::identity()),
+            (1_000_000, Quat64::from_euler_angles(0.0, 1.0, 0.0)),
+        ].into());
+        gyro.smoothed_quaternions = Arc::new([
+            (0, Quat64::from_euler_angles(0.0, 0.5, 0.0)),
+            (1_000_000, Quat64::from_euler_angles(0.0, 0.5, 0.0)),
+        ].into());
+    }
+
+    let mut cache = None;
+    let renderer = rolling_shutter_only_renderer(&mut cache, &source, 0.0);
+    let mut input = vec![255; size.1 * size.2];
+    let mut output = vec![0; input.len()];
+    let buffers = Buffers {
+        input: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut input }, ..Default::default() },
+        output: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut output }, ..Default::default() },
+    };
+    let transform = renderer.stabilization.read().get_frame_transform_at::<RGBA8>(400_000, None, &buffers);
+    assert_eq!(transform.matrices.len(), size.1);
+    let centre = &transform.matrices[size.1 / 2][..9];
+    assert!(centre.iter().zip([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).all(|(a, b)| (*a - b).abs() < 1e-6));
+    assert_ne!(transform.matrices.first(), transform.matrices.last());
+    assert_eq!(transform.kernel_params.fov, 1.0);
+    assert_eq!(renderer.lens.read().fisheye_params.distortion_coeffs, vec![0.0; 4]);
+    assert_eq!(source.lens.read().fisheye_params.distortion_coeffs, vec![0.2; 4]);
+}
+
+#[test]
+fn uncropped_source_renderer_preserves_edges_and_corners() {
+    let size = (24, 16, 24 * 4);
+    let mut cache = None;
+    let renderer = uncropped_source_renderer(&mut cache, (size.0, size.1));
+    renderer.stabilization.write().set_device(-1);
+    let mut input: Vec<u8> = (0..size.1 * size.2).map(|i| (i % 251) as u8).collect();
+    let mut output = vec![0; input.len()];
+    renderer.process_pixels::<RGBA8>(0, None, &mut Buffers {
+        input: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut input }, ..Default::default() },
+        output: BufferDescription { size, data: BufferSource::Cpu { buffer: &mut output }, ..Default::default() },
+    }).unwrap();
+    assert_eq!(output, input);
 }
 
 impl InstanceData {
@@ -159,6 +328,7 @@ impl InstanceData {
             self.current_file_info_pending.store(false, SeqCst);
             let lock = self.current_file_info.lock();
             if let Some(ref current_file) = *lock {
+                let _ = self.params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT);
                 if let Some(proj) = &current_file.project_path {
                     self.params.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
                 } else {
@@ -182,12 +352,17 @@ impl Execute for GyroflowPlugin {
                 let _time = std::time::Instant::now();
 
                 let time = in_args.get_time()?;
+                let host_time = time;
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
+                let rolling_shutter_only = instance_data.params.get_bool(Params::RollingShutterCompensationOnly).unwrap_or_default();
 
                 if let Some(path) = instance_data.file_path.take() {
                     let project_path = instance_data.params.get_string(Params::ProjectPath).unwrap_or_default();
                     let new_project_path = gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path);
                     if project_path.is_empty() || project_path != new_project_path {
+                        if !GyroflowPluginBase::same_file(&project_path, &new_project_path) {
+                            let _ = instance_data.params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT);
+                        }
                         let _ = instance_data.params.set_string(Params::ProjectPath, &new_project_path);
                     }
                 }
@@ -274,7 +449,8 @@ impl Execute for GyroflowPlugin {
                     timestamp_us = (frame as f64 * (1_000_000.0 / fps)).round() as i64;
                 }
 
-                let source_timestamp_us = params.get_source_timestamp_at_ramped_timestamp(timestamp_us);
+                let source_timestamp_us = if rolling_shutter_only { timestamp_us } else { params.get_source_timestamp_at_ramped_timestamp(timestamp_us) };
+                let rolling_shutter_inactive = params.frame_readout_time == 0.0 || !has_gyro;
                 drop(params);
 
                 if source_timestamp_us != timestamp_us {
@@ -287,6 +463,18 @@ impl Execute for GyroflowPlugin {
                 }
 
                 time += time_adj;
+                let uncropped = if rolling_shutter_only {
+                    rolling_shutter_inactive
+                } else if GyroflowPluginBaseInstance::distortion_aware_border(&instance_data.params) {
+                    false
+                } else if instance_data.params.get_bool(Params::UseGyroflowsKeyframes).unwrap_or_default()
+                    && stab.keyframes.read().is_keyframed_internally(&KeyframeType::SmoothingParamSmoothness)
+                {
+                    stab.keyframes.read().value_at_video_timestamp(&KeyframeType::SmoothingParamSmoothness, timestamp_us as f64 / 1000.0) == Some(0.0)
+                } else {
+                    matches!(instance_data.params.get_f64_at_time(Params::Smoothness, TimeType::Frame(host_time))
+                        .or_else(|_| instance_data.params.get_f64(Params::Smoothness)), Ok(0.0))
+                };
                 let source_image = if in_args.get_opengl_enabled().unwrap_or_default() {
                     instance_data.source_clip.load_texture(time, None)?
                 } else {
@@ -307,7 +495,7 @@ impl Execute for GyroflowPlugin {
                 // (Vegas draws over the whole output buffer, see below)
                 let is_vegas = _plugin_context.get_host().get_name().as_deref().ok() == Some("com.vegascreativesoftware.vegas");
                 let input_rotation = instance_data.params.get_f64_at_time(Params::InputRotation, TimeType::Frame(time)).unwrap_or_default();
-                let keep_clip_frame = !is_vegas && instance_data.plugin.keep_clip_frame(&instance_data.params, video_size, input_rotation, (out_size.0, out_size.1));
+                let keep_clip_frame = rolling_shutter_only || (!is_vegas && instance_data.plugin.keep_clip_frame(&instance_data.params, video_size, input_rotation, (out_size.0, out_size.1)));
                 let geometry = GyroflowPluginBase::render_geometry(video_size, input_rotation, (src_size.0, src_size.1), (out_size.0, out_size.1), instance_data.is_fusion_page, keep_clip_frame, true);
                 // The output size has the aspect of what it's drawn into
                 let output_size = if is_vegas {
@@ -315,10 +503,18 @@ impl Execute for GyroflowPlugin {
                 } else {
                     instance_data.plugin.output_size_for(&instance_data.params, video_size, geometry.input_rotation, (out_size.0, out_size.1))
                 };
-                GyroflowPluginBaseInstance::ensure_output_aspect(&stab, output_size);
-                let src_rect = geometry.src_rect;
+                if !rolling_shutter_only && !uncropped {
+                    GyroflowPluginBaseInstance::ensure_output_aspect(&stab, output_size);
+                }
+                let src_rect = if uncropped { None } else { Some(geometry.src_rect) };
                 // Of an anamorphic clip, only the part the timeline shows once de-squeezed (the output size has its aspect)
-                let mut out_rect = if is_vegas { geometry.out_rect } else { geometry.out_rect.map(|r| instance_data.plugin.timeline_window_rect(&instance_data.params, r)) };
+                let mut out_rect = if uncropped {
+                    Some(GyroflowPluginBase::get_center_rect(out_size.0, out_size.1, src_size.0 as f64 / src_size.1.max(1) as f64))
+                } else if rolling_shutter_only || is_vegas {
+                    geometry.out_rect
+                } else {
+                    geometry.out_rect.map(|r| instance_data.plugin.timeline_window_rect(&instance_data.params, r))
+                };
 
                 let out_scale = output_image.get_render_scale()?;
                 if (out_scale.x != 1.0 || out_scale.y != 1.0) && !in_args.get_opengl_enabled().unwrap_or_default() {
@@ -339,11 +535,11 @@ impl Execute for GyroflowPlugin {
                     }
                 }
 
-                if is_vegas {
+                if is_vegas && !rolling_shutter_only && !uncropped {
                     out_rect = None;
                 }
 
-                let input_rotation = Some(geometry.kernel_rotation as f32);
+                let input_rotation = (!uncropped).then_some(geometry.kernel_rotation as f32);
 
                 // log::debug!("src_size: {src_size:?} | src_rect: {src_rect:?}");
                 // log::debug!("out_size: {out_size:?} | out_rect: {out_rect:?}");
@@ -427,16 +623,25 @@ impl Execute for GyroflowPlugin {
 
                 if let Some(buffers) = buffers {
                     let mut buffers = Buffers {
-                        input:  BufferDescription { size: src_size, rect: Some(src_rect), data: buffers.0, rotation: input_rotation, texture_copy: buffers.2 },
+                        input:  BufferDescription { size: src_size, rect: src_rect,       data: buffers.0, rotation: input_rotation, texture_copy: buffers.2 },
                         output: BufferDescription { size: out_size, rect: out_rect,       data: buffers.1, rotation: None,           texture_copy: buffers.2 }
+                    };
+                    let (renderer, timestamp_us) = if uncropped {
+                        // Resolve already positioned and rotated these source pixels. Fit the
+                        // whole host frame, without the stabilized window, FOV, or lens warp.
+                        (uncropped_source_renderer(&mut instance_data.uncropped_renderer, (src_size.0, src_size.1)), 0)
+                    } else if rolling_shutter_only {
+                        (rolling_shutter_only_renderer(&mut instance_data.rolling_shutter_renderer, &stab, geometry.input_rotation), timestamp_us)
+                    } else {
+                        (stab.as_ref(), timestamp_us)
                     };
 
                     let processed = match output_image.get_pixel_depth()? {
                         BitDepth::None  => { return FAILED; },
-                        BitDepth::Byte  => stab.process_pixels::<RGBA8>  (timestamp_us, None, &mut buffers),
-                        BitDepth::Short => stab.process_pixels::<RGBA16> (timestamp_us, None, &mut buffers),
-                        BitDepth::Half  => stab.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
-                        BitDepth::Float => stab.process_pixels::<RGBAf>  (timestamp_us, None, &mut buffers)
+                        BitDepth::Byte  => renderer.process_pixels::<RGBA8>  (timestamp_us, None, &mut buffers),
+                        BitDepth::Short => renderer.process_pixels::<RGBA16> (timestamp_us, None, &mut buffers),
+                        BitDepth::Half  => renderer.process_pixels::<RGBAf16>(timestamp_us, None, &mut buffers),
+                        BitDepth::Float => renderer.process_pixels::<RGBAf>  (timestamp_us, None, &mut buffers)
                     };
                     match processed {
                         Ok(_) => {
@@ -466,6 +671,8 @@ impl Execute for GyroflowPlugin {
                     supports_output_size: true,
                     is_fusion_page: false,
                     file_path: None,
+                    uncropped_renderer: None,
+                    rolling_shutter_renderer: None,
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
                         project_data:             param_set.parameter("ProjectData")?,
@@ -486,6 +693,10 @@ impl Execute for GyroflowPlugin {
                         smoothness:               param_set.parameter("Smoothness")?,
                         zoom_limit:               param_set.parameter("ZoomLimit")?,
                         lens_correction_strength: param_set.parameter("LensCorrectionStrength")?,
+                        rolling_shutter_compensation: param_set.parameter("RollingShutterCompensation")?,
+                        rolling_shutter_compensation_only: param_set.parameter("RollingShutterCompensationOnly")?,
+                        distortion_aware_border:   param_set.parameter("DistortionAwareBorder")?,
+                        rolling_shutter_readout: param_set.parameter("RollingShutterReadout")?,
                         horizon_lock_amount:      param_set.parameter("HorizonLockAmount")?,
                         horizon_lock_roll:        param_set.parameter("HorizonLockRoll")?,
                         video_speed:              param_set.parameter("VideoSpeed")?,
@@ -509,6 +720,11 @@ impl Execute for GyroflowPlugin {
                         loaded_project:           param_set.parameter("LoadedProject")?,
                         loaded_lens:              param_set.parameter("LoadedLens")?,
                         loaded_preset:            param_set.parameter("LoadedPreset")?,
+                        lens_camera:              param_set.parameter("LensCamera")?,
+                        lens_camera_setting:      param_set.parameter("LensCameraSetting")?,
+                        lens_focal_length:        param_set.parameter("LensFocalLength")?,
+                        lens_horizontal_squeeze:  param_set.parameter("LensHorizontalSqueeze")?,
+                        lens_vertical_squeeze:    param_set.parameter("LensVerticalSqueeze")?,
 
                         //fusion_start_frame:       param_set.parameter("FusionStartFrame")?,
 
@@ -598,6 +814,10 @@ impl Execute for GyroflowPlugin {
                 let time = in_args.get_time()?;
                 let instance_data = effect.get_instance_data::<InstanceData>()?;
                 let rod = instance_data.source_clip.get_region_of_definition(time)?;
+                if instance_data.params.get_bool(Params::RollingShutterCompensationOnly).unwrap_or_default() {
+                    out_args.set_effect_region_of_definition(rod)?;
+                    return OK;
+                }
                 let mut out_rod = rod;
                 if instance_data.plugin.original_output_size != (0, 0) && !instance_data.params.get_bool_at_time(Params::DontDrawOutside, TimeType::Frame(time)).unwrap() { // TODO: unwrap
                     out_rod.x2 = instance_data.plugin.original_output_size.0 as f64;
@@ -666,7 +886,7 @@ impl Execute for GyroflowPlugin {
                         ParameterType::Slider { id, label, hint, min, max, default } => {
                             let mut param = param_set.param_define_double(id)?;
                             param.set_default(default)?;
-                            param.set_display_min(min)?;
+                            param.set_display_min(if id == "Smoothness" { 0.0 } else { min })?;
                             param.set_display_max(max)?;
                             param.set_label(label)?;
                             param.set_hint(hint)?;
@@ -698,14 +918,74 @@ impl Execute for GyroflowPlugin {
                             if let Some(group) = group { param.set_parent(group)?; }
 
                             for x in parameters {
+                                let follows_video_speed = id == "AdjustGroup"
+                                    && matches!(&x, ParameterType::Slider { id: "VideoSpeed", .. });
                                 define_param(param_set, x, Some(id))?;
+                                if follows_video_speed {
+                                    let mut border = param_set.param_define_boolean("DistortionAwareBorder")?;
+                                    border.set_parent(id)?;
+                                    border.set_label("Distortion-Aware Border")?;
+                                    border.set_hint("Use the lens distortion model for the stabilization border. RS Compen. Only always uses rectangular geometry.")?;
+                                    border.set_default(true)?;
+                                    let _ = border.set_script_name("DistortionAwareBorder");
+                                    <Bool as RawSetter<_>>::set_at(&mut border, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
+                                }
+                            }
+                            if id == "InfoGroup" {
+                                for (name, label) in [
+                                    ("LensCamera", "Camera"),
+                                    ("LensCameraSetting", "Camera setting"),
+                                    ("LensFocalLength", "Focal length"),
+                                    ("LensHorizontalSqueeze", "Horizontal squeeze"),
+                                    ("LensVerticalSqueeze", "Vertical squeeze"),
+                                ] {
+                                    let mut field = param_set.param_define_string(name)?;
+                                    field.set_parent(id)?;
+                                    field.set_label(label)?;
+                                    field.set_string_type(ParamStringType::SingleLine)?;
+                                    field.set_enabled(false)?;
+                                    let _ = <Bool as RawSetter<_>>::set_at(&mut field, c"OfxParamPropPluginMayWrite".as_ptr(), 0, &true);
+                                }
                             }
                         }
                     }
                     OK
                 }
 
+                fn define_rolling_shutter(param_set: &mut ParamSetHandle) -> Result<()> {
+                    let group = "RollingShutterGroup";
+                    let mut rolling_shutter = param_set.param_define_group(group)?;
+                    rolling_shutter.set_label("Rolling Shutter")?;
+                    rolling_shutter.set_group_open(true)?;
+                    for (id, label, default, hint) in [
+                        ("RollingShutterCompensationOnly", "RS Compen. Only", false, "Apply only rolling shutter compensation with rectangular border geometry. Requires RS Compen. On."),
+                        ("RollingShutterCompensation", "RS Compen. On", true, "Correct rolling shutter using the sensor readout time."),
+                    ] {
+                        let mut toggle = param_set.param_define_boolean(id)?;
+                        toggle.set_parent(group)?;
+                        toggle.set_label(label)?;
+                        toggle.set_hint(hint)?;
+                        let _ = toggle.set_script_name(id);
+                        toggle.set_default(default)?;
+                        <Bool as RawSetter<_>>::set_at(&mut toggle, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
+                    }
+                    let mut readout = param_set.param_define_double("RollingShutterReadout")?;
+                    readout.set_parent(group)?;
+                    readout.set_label("Rolling shutter (ms)")?;
+                    let _ = readout.set_script_name("RollingShutterReadout");
+                    readout.set_hint("Sensor readout time in milliseconds, initialized from the loaded profile or clip.")?;
+                    readout.set_default(UNSET_ROLLING_SHUTTER_READOUT)?;
+                    readout.set_display_min(0.0)?;
+                    readout.set_display_max(50.0)?;
+                    <Bool as RawSetter<_>>::set_at(&mut readout, c"OfxParamPropAnimates".as_ptr(), 0, &false)?;
+                    let _ = <Bool as RawSetter<_>>::set_at(&mut readout, c"OfxParamPropPluginMayWrite".as_ptr(), 0, &true);
+                    Ok(())
+                }
+
                 for param in GyroflowPluginBase::get_param_definitions() {
+                    if matches!(&param, ParameterType::Group { id: "AdjustGroup", .. }) {
+                        define_rolling_shutter(&mut param_set)?;
+                    }
                     define_param(&mut param_set, param, None)?;
                 }
 
@@ -713,9 +993,10 @@ impl Execute for GyroflowPlugin {
                     .param_define_page("Main")?
                     .set_children(&[
                         "ProjectGroup",
+                        "RollingShutterGroup",
                         "AdjustGroup",
                         "KeyframesGroup",
-                        "ToggleOverview", "DontDrawOutside", "IncludeProjectData"
+                        "ToggleOverview", "DontDrawOutside", "IncludeProjectData", "InfoGroup"
                     ])?;
 
                 OK
