@@ -697,6 +697,8 @@ pub struct GyroflowPluginBaseInstance {
     /// The adjustments (smoothness, FOV...) came with the effect, copied from another clip or applied as a preset, and
     /// the project loaded next mustn't replace them. Only what belongs to the clip is loaded from it then
     pub keep_adjustments: bool,
+    /// Preserve the rotation and stretch controls too when keeping adjustments for a different source.
+    pub keep_input_adjustments: bool,
 
     pub original_video_size: (usize, usize),
     pub original_output_size: (usize, usize),
@@ -736,6 +738,7 @@ impl Clone for GyroflowPluginBaseInstance {
             has_motion:                     self.has_motion,
             reload_values_from_project:     self.reload_values_from_project,
             keep_adjustments:               self.keep_adjustments,
+            keep_input_adjustments:         self.keep_input_adjustments,
             ever_changed:                   self.ever_changed,
             opencl_disabled:                self.opencl_disabled,
             cache_keyframes_every_frame:    self.cache_keyframes_every_frame,
@@ -761,6 +764,7 @@ impl Default for GyroflowPluginBaseInstance {
             has_motion:                     false,
             reload_values_from_project:     true,
             keep_adjustments:               false,
+            keep_input_adjustments:         false,
             ever_changed:                   false,
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
@@ -1540,6 +1544,8 @@ impl GyroflowPluginBaseInstance {
             stab
         } else {
             log::info!("new stab manager for key: {key}");
+            let reload_input_adjustments = self.reload_values_from_project
+                && !(self.keep_adjustments && self.keep_input_adjustments);
             let mut stab = StabilizationManager::default();
             {
                 // Find first lens profile database with loaded profiles
@@ -1569,7 +1575,7 @@ impl GyroflowPluginBaseInstance {
                             stab.params.write().output_size = preset_out_size;
                         }
                         Self::apply_embedded_presets(params, &stab, false);
-                        if self.reload_values_from_project {
+                        if reload_input_adjustments {
                             // The host shows the video turned by its rotation metadata, and so does the output by default.
                             // Set for unrotated videos too, a vertical video loaded before must not leave its rotation behind
                             let r = GyroflowPluginBase::input_rotation_from_metadata(md.rotation);
@@ -1634,7 +1640,7 @@ impl GyroflowPluginBaseInstance {
                 Self::apply_embedded_presets(params, &stab, true);
                 params.set_string(Params::LoadedProject, &filesystem::get_filename(&filesystem::path_to_url(&path)))?;
 
-                if self.reload_values_from_project {
+                if reload_input_adjustments {
                     // The host shows the video turned by its rotation metadata (Resolve on all its pages, Premiere and After
                     // Effects). The output rotation is the project's, which the app set from the same metadata or the user changed
                     let url = stab.input_file.read().url.clone();
@@ -1658,16 +1664,17 @@ impl GyroflowPluginBaseInstance {
                 let reload_adjustments = self.reload_values_from_project;
                 if loaded && self.reload_values_from_project {
                     self.reload_values_from_project = false;
-                    // What belongs to the clip
-                    params.set_f64(Params::Rotation,               gf_params.video_rotation)?;
                     params.set_f64(Params::OutputWidth,            self.original_output_size.0 as f64)?;
                     params.set_f64(Params::OutputHeight,           self.original_output_size.1 as f64)?;
                     if let Some(name) = stab.input_file.read().preset_name.clone() {
                         params.set_string(Params::LoadedPreset, &name)?;
                     }
                     params.set_string(Params::LoadedLens, &Self::loaded_lens_name(&stab.lens.read()))?;
-                    GyroflowPluginBase::set_input_horizontal_stretch(params, stab.lens.read().input_horizontal_stretch)?;
-                    GyroflowPluginBase::set_input_vertical_stretch(params, stab.lens.read().input_vertical_stretch)?;
+                    if reload_input_adjustments {
+                        params.set_f64(Params::Rotation, gf_params.video_rotation)?;
+                        GyroflowPluginBase::set_input_horizontal_stretch(params, stab.lens.read().input_horizontal_stretch)?;
+                        GyroflowPluginBase::set_input_vertical_stretch(params, stab.lens.read().input_vertical_stretch)?;
+                    }
                 }
                 // The adjustments, unless they came with the effect
                 if loaded && reload_adjustments && !std::mem::take(&mut self.keep_adjustments) {
@@ -3063,6 +3070,61 @@ mod tests {
         params.set_bool(Params::RollingShutterCompensation, true).unwrap();
         let reopened = instance.stab_manager(&mut params, &self::cache(), size, false).unwrap();
         assert_eq!(reopened.params.read().frame_readout_time, 9.75);
+    }
+
+    #[test]
+    fn ofx_source_change_keeps_adjustments_and_loads_destination_metadata() {
+        let mut copied = params();
+        copied.set_bool(Params::IncludeProjectData, true).unwrap();
+        copied.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT).unwrap();
+        copied.set_string(Params::ProjectData, &serde_json::json!({
+            "version": 4,
+            "video_info": { "width": 3840, "height": 2160, "rotation": 270.0, "fps": 25.0, "duration_ms": 1000.0, "num_frames": 25 },
+            "calibration_data": serde_json::from_str::<serde_json::Value>(include_str!("../tests/fixtures/sony_aivascope_vertical_1_5x.json")).unwrap(),
+            "stabilization": { "frame_readout_time": 12.5 },
+        }).to_string()).unwrap();
+        let adjustments = [
+            (Params::Smoothness, 84.0),
+            (Params::LensCorrectionStrength, 37.0),
+            (Params::Rotation, 90.0),
+            (Params::InputRotation, 90.0),
+            (Params::InputVerticalStretch, 1.42),
+            (Params::CustomSqueezeRatio, 1.27),
+            (Params::VideoSpeed, 100.0),
+        ];
+        for (param, value) in adjustments {
+            copied.set_f64(param, value).unwrap();
+        }
+        copied.set_i32(Params::SqueezeRatio, 10).unwrap();
+        copied.set_string(Params::VerticalStretchControlVersion, "1").unwrap();
+        copied.set_i32(Params::VerticalSqueezeRatio, 10).unwrap();
+        copied.set_i32(Params::Zooming, 1).unwrap();
+        let mut fresh = copied.clone();
+        let mut instance = GyroflowPluginBaseInstance {
+            reload_values_from_project: true,
+            keep_adjustments: true,
+            keep_input_adjustments: true,
+            ..Default::default()
+        };
+        let destination = instance.stab_manager(&mut copied, &cache(), (1920, 1080), false).unwrap();
+        for (param, value) in adjustments {
+            assert_eq!(copied.get_f64(param).unwrap(), value, "{param:?}");
+        }
+        assert_eq!(GyroflowPluginBase::get_squeeze(&copied), 1.27);
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&copied), 1.42);
+        assert_eq!(copied.get_i32(Params::Zooming).unwrap(), 1);
+        assert_eq!(destination.params.read().size, (3840, 2160));
+        assert_eq!(instance.fps, 25.0);
+        assert_eq!(copied.get_f64(Params::RollingShutterReadout).unwrap(), 12.5);
+        assert!(!instance.keep_adjustments);
+
+        let mut instance = GyroflowPluginBaseInstance {
+            keep_input_adjustments: true,
+            ..Default::default()
+        };
+        instance.stab_manager(&mut fresh, &cache(), (1920, 1080), false).unwrap();
+        assert_eq!(fresh.get_f64(Params::LensCorrectionStrength).unwrap(), 0.0);
+        assert_eq!(GyroflowPluginBase::get_vertical_stretch(&fresh), 1.5);
     }
 
     #[test]

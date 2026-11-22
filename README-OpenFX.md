@@ -37,6 +37,8 @@ The bundle binary must be named `GyroflowOmni.ofx` (for example, `Contents/Win64
 
 Lens correction defaults to **0** for new instances and fresh project/preset loads, including projects with lens-correction keyframes. You can adjust or keyframe it afterward; saved effects retain their settings.
 
+When you copy the effect to a different clip in Resolve, Gyroflow keeps the copied **Adjust parameters** values and Resolve keyframes when it switches to the destination clip. The destination supplies the video, gyro data, and timing.
+
 ## Zooming
 
 **Zooming**, immediately before **Integration method** in **Adjust parameters**, offers

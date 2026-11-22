@@ -10,6 +10,7 @@ use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
 
 const PLUGIN_LABEL: &str = concat!("Gyroflow (Omni) ", env!("CARGO_PKG_VERSION"));
+const SOURCE_MEDIA_PATH: &str = "SourceMediaPath";
 const WEBSITE_PARAM: &str = "OpenWebsite";
 const WEBSITE_DOMAIN: &str = "www.omnicinecontrol.com";
 
@@ -232,6 +233,7 @@ struct InstanceData {
     supports_output_size: bool,
     is_fusion_page: bool,
     file_path: Option<String>,
+    source_media_path: ParamHandle<String>,
     uncropped_renderer: Option<StabilizationManager>,
     rolling_shutter_renderer: Option<(Arc<StabilizationManager>, StabilizationManager)>,
 
@@ -425,19 +427,57 @@ impl InstanceData {
             Error::UnknownError
         })
     }
-    pub fn check_pending_file_info(&mut self) -> Result<bool> { // -> is_video_file
+    fn load_source_project(
+        &mut self,
+        manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>,
+        source_path: &str,
+        project_path: &str,
+        automatic: bool,
+    ) -> Result<()> {
+        let previous_project = self.params.project_path.get_value()?;
+        let previous_source = self.source_media_path.get_value()?;
+        let same_project = GyroflowPluginBase::same_file(&previous_project, project_path);
+        let same_source = if previous_source.is_empty() {
+            // Older effects only saved the project path. Its sidecar may now exist only as embedded data.
+            let sidecar = std::path::Path::new(source_path).with_extension("gyroflow");
+            same_project
+                || GyroflowPluginBase::same_file(&previous_project, source_path)
+                || GyroflowPluginBase::same_file(&previous_project, &sidecar.to_string_lossy())
+        } else {
+            GyroflowPluginBase::same_file(&previous_source, source_path)
+        };
+        let source_changed = !previous_project.is_empty() && !same_source;
+
+        // An automatic restore of the same media keeps its selected project and embedded data.
+        if !automatic || previous_project.is_empty() || source_changed {
+            if source_changed || !same_project {
+                self.params.project_data.set_value(String::new())?;
+            }
+            if source_changed {
+                // The paste carries Resolve's curves. The destination project's internal curves
+                // would take precedence over them if left enabled.
+                self.params.use_gyroflows_keyframes.set_value(false)?;
+            }
+            self.params.rolling_shutter_readout.set_value(UNSET_ROLLING_SHUTTER_READOUT)?;
+            self.params.project_path.set_value(project_path.to_owned())?;
+            self.plugin.keep_adjustments = source_changed;
+            self.plugin.reload_values_from_project = true;
+            self.plugin.clear_stab(manager_cache);
+        }
+        if !GyroflowPluginBase::same_file(&previous_source, source_path) {
+            self.source_media_path.set_value(source_path.to_owned())?;
+        }
+        Ok(())
+    }
+
+    fn check_pending_file_info(&mut self, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>) -> Result<bool> {
         if self.current_file_info_pending.load(SeqCst) {
             self.current_file_info_pending.store(false, SeqCst);
-            let lock = self.current_file_info.lock();
-            if let Some(ref current_file) = *lock {
-                let _ = self.params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT);
-                if let Some(proj) = &current_file.project_path {
-                    self.params.set_string(Params::ProjectPath, &proj).unwrap(); // TODO: unwrap
-                } else {
-                    // Try to use the video directly
-                    self.params.set_string(Params::ProjectPath, &current_file.file_path).unwrap(); // TODO: unwrap
-                    return Ok(true);
-                }
+            let source = self.current_file_info.lock().as_ref()
+                .map(|file| (file.file_path.clone(), file.project_path.clone()));
+            if let Some((source_path, project_path)) = source {
+                self.load_source_project(manager_cache, &source_path, project_path.as_deref().unwrap_or(&source_path), false)?;
+                return Ok(project_path.is_none());
             }
         }
         Ok(false)
@@ -459,17 +499,11 @@ impl Execute for GyroflowPlugin {
                 let rolling_shutter_only = instance_data.params.get_bool(Params::RollingShutterCompensationOnly).unwrap_or_default();
 
                 if let Some(path) = instance_data.file_path.take() {
-                    let project_path = instance_data.params.get_string(Params::ProjectPath).unwrap_or_default();
-                    let new_project_path = gyroflow_plugin_base::GyroflowPluginBase::get_project_path(&path).unwrap_or(path);
-                    if project_path.is_empty() || project_path != new_project_path {
-                        if !GyroflowPluginBase::same_file(&project_path, &new_project_path) {
-                            let _ = instance_data.params.set_f64(Params::RollingShutterReadout, UNSET_ROLLING_SHUTTER_READOUT);
-                        }
-                        let _ = instance_data.params.set_string(Params::ProjectPath, &new_project_path);
-                    }
+                    let project_path = GyroflowPluginBase::get_project_path(&path);
+                    instance_data.load_source_project(&self.gyroflow_plugin.manager_cache, &path, project_path.as_deref().unwrap_or(&path), true)?;
                 }
 
-                let loading_pending_video_file = instance_data.check_pending_file_info()?;
+                let loading_pending_video_file = instance_data.check_pending_file_info(&self.gyroflow_plugin.manager_cache)?;
 
                 let output_image = if in_args.get_opengl_enabled().unwrap_or_default() {
                     instance_data.output_clip.load_texture_mut(time, None)?
@@ -773,6 +807,7 @@ impl Execute for GyroflowPlugin {
                     supports_output_size: true,
                     is_fusion_page: false,
                     file_path: None,
+                    source_media_path: param_set.parameter(SOURCE_MEDIA_PATH)?,
                     uncropped_renderer: None,
                     rolling_shutter_renderer: None,
                     params: ParamHandler {
@@ -843,6 +878,7 @@ impl Execute for GyroflowPlugin {
                         fps:                         0.0,
                         reload_values_from_project:  false,
                         keep_adjustments:            false,
+                        keep_input_adjustments:      true,
                         ever_changed:                false,
                         opencl_disabled:             false,
                         cache_keyframes_every_frame: true,
@@ -905,6 +941,11 @@ impl Execute for GyroflowPlugin {
                 }
                 if in_args.get_name()? == "LoadCurrent" {
                     CurrentFileInfo::query(instance_data.current_file_info.clone(), instance_data.current_file_info_pending.clone());
+                }
+                if in_args.get_name()? == SOURCE_MEDIA_PATH
+                    || (in_args.get_name()? == "ProjectPath" && in_args.get_change_reason()? == Change::PluginEdited)
+                {
+                    return OK;
                 }
                 if in_args.get_name()? == "Source" || in_args.get_name()? == "Output" || in_args.get_name()? == "ResolveUseAlphaForTrackCompositing" {
                     log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
@@ -1123,6 +1164,7 @@ impl Execute for GyroflowPlugin {
                     }
                     define_param(&mut param_set, param, None, lang)?;
                 }
+                define_param(&mut param_set, ParameterType::HiddenString { id: SOURCE_MEDIA_PATH }, None, lang)?;
 
                 define_param(&mut param_set, ParameterType::Button {
                     id: WEBSITE_PARAM,

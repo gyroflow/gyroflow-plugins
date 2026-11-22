@@ -384,6 +384,7 @@ impl CrossThreadInstance {
             has_motion:                     false,
             reload_values_from_project:     true,
             keep_adjustments:               false,
+            keep_input_adjustments:         false,
             ever_changed:                   false,
             opencl_disabled:                false,
             cache_keyframes_every_frame:    true,
