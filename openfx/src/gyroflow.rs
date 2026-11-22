@@ -10,6 +10,38 @@ use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
 
 const PLUGIN_LABEL: &str = concat!("Gyroflow (Omni) ", env!("CARGO_PKG_VERSION"));
+const WEBSITE_PARAM: &str = "OpenWebsite";
+const WEBSITE_DOMAIN: &str = "www.omnicinecontrol.com";
+
+fn open_website() {
+    use std::process::Command;
+
+    let url = format!("https://{WEBSITE_DOMAIN}");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("cmd.exe");
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        command.args(["/d", "/c", "start", "", &url]);
+        command
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut command = {
+        let mut command = Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" });
+        command.arg(url);
+        command
+    };
+
+    if let Err(err) = std::thread::Builder::new().spawn(move || {
+        match command.status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => log::error!("Website launcher exited with {status}"),
+            Err(err) => log::error!("Could not launch the website: {err}"),
+        }
+    }) {
+        log::error!("Could not start the website launcher: {err}");
+    }
+}
 
 plugin_module!(
     "xyz.gyroflow.omni",
@@ -860,6 +892,12 @@ impl Execute for GyroflowPlugin {
                 OK
             }
             InstanceChanged(ref mut effect, ref mut in_args) => {
+                if in_args.get_name()? == WEBSITE_PARAM {
+                    if in_args.get_change_reason()? == Change::UserEdited {
+                        open_website();
+                    }
+                    return OK;
+                }
                 let param_set = effect.parameter_set()?;
                 let instance_data: &mut InstanceData = effect.get_instance_data()?;
                 if in_args.get_name()? == "Language" {
@@ -1086,6 +1124,12 @@ impl Execute for GyroflowPlugin {
                     define_param(&mut param_set, param, None, lang)?;
                 }
 
+                define_param(&mut param_set, ParameterType::Button {
+                    id: WEBSITE_PARAM,
+                    label: WEBSITE_DOMAIN,
+                    hint: "Open the Omni Cine Control website",
+                }, None, lang)?;
+
                 param_set
                     .param_define_page("Main")?
                     .set_children(&[
@@ -1093,7 +1137,7 @@ impl Execute for GyroflowPlugin {
                         "RollingShutterGroup",
                         "AdjustGroup",
                         "KeyframesGroup",
-                        "ToggleOverview", "DontDrawOutside", "IncludeProjectData", "InfoGroup"
+                        "ToggleOverview", "DontDrawOutside", "IncludeProjectData", "InfoGroup", WEBSITE_PARAM
                     ])?;
 
                 OK
