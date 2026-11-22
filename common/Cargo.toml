@@ -21,6 +21,7 @@ lazy_static = "1.5.1"
 fastrand = "2.5"
 simplelog = "0.12.2"
 win_dbg_logger = "0.1"
+xml-rs = "0.8.29"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 oslog = "0.2"

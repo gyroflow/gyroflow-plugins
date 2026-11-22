@@ -10,6 +10,91 @@ use std::sync::{Arc, atomic::AtomicBool};
 use telemetry_parser::util::VideoMetadata;
 
 const SIDECAR_METADATA: &str = "video_sidecar_metadata";
+const SONY_METADATA_LIMIT: u64 = 1024 * 1024;
+
+#[derive(Default)]
+struct SonyMetadata {
+    lens_model: Option<String>,
+    is_xocn: bool,
+}
+
+fn read_sony_xml(xml: impl Read) -> Option<SonyMetadata> {
+    use xml::reader::{EventReader, XmlEvent};
+
+    let mut metadata = SonyMetadata::default();
+    let mut depth = 0;
+    for event in EventReader::new(xml) {
+        match event.ok()? {
+            XmlEvent::StartElement { name, attributes, .. } => {
+                let attribute = |key| attributes.iter().find(|item| item.name.local_name == key)
+                    .map(|item| item.value.trim()).filter(|value| !value.is_empty());
+                match (depth, name.local_name.as_str()) {
+                    (0, name) if name != "NonRealTimeMeta" => return None,
+                    (1, "Lens") => metadata.lens_model = attribute("modelName").map(str::to_owned),
+                    (2, "VideoFrame") => metadata.is_xocn = attribute("videoCodec")
+                        .is_some_and(|codec| codec.starts_with("X-OCN")),
+                    _ => {}
+                }
+                depth += 1;
+            }
+            XmlEvent::EndElement { .. } => depth -= 1,
+            _ => {}
+        }
+    }
+    Some(metadata)
+}
+
+fn read_sony_mxf_xml(stream: &mut (impl Read + Seek)) -> Option<SonyMetadata> {
+    let position = stream.stream_position().ok()?;
+    stream.seek(SeekFrom::Start(0)).ok()?;
+    let mut header = Vec::new();
+    let result = stream.take(SONY_METADATA_LIMIT).read_to_end(&mut header);
+    stream.seek(SeekFrom::Start(position)).ok()?;
+    result.ok()?;
+
+    let start_tag = b"<NonRealTimeMeta";
+    let end_tag = b"</NonRealTimeMeta>";
+    let start = header.windows(start_tag.len()).position(|bytes| bytes == start_tag)?;
+    let xml = &header[start..];
+    let end = xml.windows(end_tag.len()).position(|bytes| bytes == end_tag)?;
+    read_sony_xml(&xml[..end + end_tag.len()])
+}
+
+fn load_sony_mxf_metadata(stab: &StabilizationManager, stream: &mut (impl Read + Seek), url: &str) -> bool {
+    if !stab.camera_id.read().as_ref().is_some_and(|id| id.brand == "Sony") {
+        return false;
+    }
+    let filename = filesystem::get_filename(url);
+    let Some((stem, ext)) = filename.rsplit_once('.') else { return false; };
+    if !ext.eq_ignore_ascii_case("mxf") { return false; }
+
+    let mut metadata = read_sony_mxf_xml(stream).unwrap_or_default();
+    if metadata.lens_model.is_none() {
+        let folder = filesystem::get_folder(url);
+        let sidecar = filesystem::get_file_url(&folder, &format!("{stem}M01.xml"), false);
+        if let Ok(mut xml) = filesystem::open_file(&sidecar, false, false)
+            && xml.size <= SONY_METADATA_LIMIT
+            && let Some(sidecar) = read_sony_xml(xml.get_file().take(SONY_METADATA_LIMIT))
+        {
+            metadata.lens_model = sidecar.lens_model;
+            metadata.is_xocn |= sidecar.is_xocn;
+        }
+    }
+    if let Some(lens_model) = metadata.lens_model {
+        let mut camera_id = stab.camera_id.write();
+        if let Some(camera) = camera_id.as_mut().filter(|camera| camera.lens_model.trim().is_empty()) {
+            log::debug!("Sony MXF lens identified as {lens_model:?}");
+            camera.lens_model = lens_model;
+            let camera = camera.clone();
+            drop(camera_id);
+            let mut gyro = stab.gyro.write();
+            let mut file_metadata = gyro.file_metadata.read().clone();
+            file_metadata.camera_identifier = Some(camera);
+            gyro.file_metadata = file_metadata.into();
+        }
+    }
+    metadata.is_xocn
+}
 
 pub fn get_video_metadata<T: Read + Seek>(
     stream: &mut T,
@@ -46,7 +131,8 @@ pub fn load_video_file<T: Read + Seek>(
     let metadata = stab.load_video_file(stream, filesize, url, Some(metadata), true)?;
     if metadata.width > 0 && metadata.height > 0 && metadata.duration_s > 0.0 && metadata.fps > 0.0
     {
-        autoload_local_zoom_profile(stab)?;
+        let is_xocn = load_sony_mxf_metadata(stab, stream, url);
+        autoload_local_zoom_profile(stab, is_xocn)?;
         let path = filesystem::url_to_path(url);
         let path = Path::new(&path);
         // Core already checks sidecars for some containers. Fill in when that
@@ -77,7 +163,7 @@ pub(crate) fn zoom_focal_range(profile: &LensProfile) -> Option<(f64, f64)> {
     (max > min).then_some((min, max))
 }
 
-fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), GyroflowCoreError> {
+fn autoload_local_zoom_profile(stab: &StabilizationManager, is_xocn: bool) -> Result<(), GyroflowCoreError> {
     let Some(camera) = stab.camera_id.read().clone() else { return Ok(()); };
     if camera.identifier.is_empty() || camera.lens_model.trim().is_empty() {
         return Ok(());
@@ -85,7 +171,7 @@ fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), Gyrofl
     let (min, max) = {
         let gyro = stab.gyro.read();
         let metadata = gyro.file_metadata.read();
-        if metadata.lens_profile.as_ref().is_some_and(Value::is_object) {
+        if !is_xocn && metadata.lens_profile.as_ref().is_some_and(Value::is_object) {
             return Ok(());
         }
         metadata.lens_positions.values().filter(|f| f.is_finite() && **f > 0.0)
@@ -94,10 +180,16 @@ fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), Gyrofl
     if !min.is_finite() {
         return Ok(());
     }
+    if !stab.lens_profile_db.read().loaded {
+        let mut db = stab.lens_profile_db.write();
+        if !db.loaded {
+            db.load_all();
+        }
+    }
     let id = camera.get_identifier_for_autoload();
     let selection = {
         let db = stab.lens_profile_db.read();
-        if max <= min * 1.002 && db.contains_id(&id) {
+        if !is_xocn && max <= min * 1.002 && db.contains_id(&id) {
             return Ok(());
         }
         let local = gyroflow_core::settings::data_dir().join("lens_profiles");
@@ -114,10 +206,14 @@ fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), Gyrofl
                 return None;
             }
             let profile = db.find(&path)?;
+            let profile_lens = lens_name(&profile.lens_model);
+            let short_name_match = camera.brand.eq_ignore_ascii_case("Sony")
+                && (camera_lens.split_once('|').is_some_and(|(base, _)| base == profile_lens)
+                    || profile_lens.split_once('|').is_some_and(|(base, _)| base == camera_lens));
             if !profile.has_interpolations()
                 || !profile.camera_brand.eq_ignore_ascii_case(&camera.brand)
                 || !profile.camera_model.eq_ignore_ascii_case(&camera.model)
-                || lens_name(&profile.lens_model) != camera_lens
+                || (profile_lens != camera_lens && !short_name_match)
                 || (profile.calib_dimension.w, profile.calib_dimension.h) != (camera.video_width, camera.video_height)
                 || (profile.fps * 1000.0).round() as usize != camera.fps
                 || (!profile.camera_setting.is_empty() && !camera.camera_setting.is_empty()
@@ -126,9 +222,10 @@ fn autoload_local_zoom_profile(stab: &StabilizationManager) -> Result<(), Gyrofl
             }
             let (start, end) = zoom_focal_range(profile)?;
             (min >= start - 0.0001 && max <= end + 0.0001).then(|| {
-                (end - start, if profile.identifier.is_empty() { path } else { profile.identifier.clone() })
+                (short_name_match, end - start, if profile.identifier.is_empty() { path } else { profile.identifier.clone() })
             })
-        }).min_by(|(a, ka), (b, kb)| a.total_cmp(b).then(ka.cmp(kb))).map(|(_, key)| key)
+        }).min_by(|(alias_a, a, ka), (alias_b, b, kb)| alias_a.cmp(alias_b).then(a.total_cmp(b)).then(ka.cmp(kb)))
+            .map(|(_, _, key)| key)
     };
     if let Some(key) = selection {
         stab.load_lens_profile(&key)?;
@@ -232,6 +329,30 @@ pub(crate) fn sidecar_readout(stab: &StabilizationManager) -> Option<(f64, Reado
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn sony_mxf_xml_recovers_lens_and_codec() {
+        let mut stream = Cursor::new(br#"MXF<NonRealTimeMeta xmlns="urn:sony"><VideoFormat><VideoFrame videoCodec="X-OCN_H_C2_3840_2160"/></VideoFormat><Lens manufacturer="" modelName="17-40mm F1.8 DC | Art 025"/></NonRealTimeMeta>MXF"#);
+        stream.set_position(2);
+        let metadata = read_sony_mxf_xml(&mut stream).unwrap();
+        assert_eq!(metadata.lens_model.as_deref(), Some("17-40mm F1.8 DC | Art 025"));
+        assert!(metadata.is_xocn);
+        assert_eq!(stream.position(), 2);
+    }
+
+    #[test]
+    #[ignore = "requires the FX5 X-OCN recording and installed Sigma zoom profile"]
+    fn sony_fx5_xocn_loads_the_measured_zoom_profile() {
+        let path = std::env::var("GYROFLOW_FX5_SAMPLE").expect("set GYROFLOW_FX5_SAMPLE");
+        let url = filesystem::path_to_url(&path);
+        let mut stream = std::fs::File::open(&path).unwrap();
+        let size = stream.metadata().unwrap().len();
+        let stab = StabilizationManager::default();
+        let video = load_video_file(&stab, &mut stream, size, &url).unwrap();
+        assert_eq!((video.width, video.height), (3840, 2160));
+        assert_eq!(stab.camera_id.read().as_ref().unwrap().lens_model, "17-40mm F1.8 DC | Art 025");
+        assert_eq!(stab.lens.read().identifier, "sony-ilme-fx5-17.00mm-3840x2160@23976-zoom-17-40");
+    }
 
     #[test]
     fn raw_sample_entries_preserve_timing_for_both_extensions() {

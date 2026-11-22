@@ -1241,6 +1241,7 @@ dependencies = [
  "serde_json",
  "simplelog",
  "win_dbg_logger",
+ "xml-rs",
 ]
 
 [[package]]
