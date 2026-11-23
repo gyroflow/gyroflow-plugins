@@ -162,6 +162,8 @@ define_params!(ParamHandler {
         RollingShutterCompensation => rolling_shutter_compensation: ParamHandle<bool>,
         RollingShutterCompensationOnly => rolling_shutter_compensation_only: ParamHandle<bool>,
         DistortionAwareBorder => distortion_aware_border: ParamHandle<bool>,
+        ManualLens            => manual_lens:             ParamHandle<bool>,
+        ManualDistortionAuto  => manual_distortion_auto:  ParamHandle<bool>,
     ],
     f64s: [
         InputRotation         => input_rotation:           ParamHandle<Double>,
@@ -182,6 +184,9 @@ define_params!(ParamHandler {
         OutputHeight          => output_height:            ParamHandle<Double>,
         CustomSqueezeRatio    => custom_squeeze_ratio:     ParamHandle<Double>,
         InputVerticalStretch  => input_vertical_stretch:   ParamHandle<Double>,
+        ManualFocalLength     => manual_focal_length:      ParamHandle<Double>,
+        ManualSensorWidth     => manual_sensor_width:      ParamHandle<Double>,
+        ManualDistortion      => manual_distortion:        ParamHandle<Double>,
         //FusionStartFrame      => fusion_start_frame:       ParamHandle<Double>,
     ],
     i32s: [
@@ -833,6 +838,11 @@ impl Execute for GyroflowPlugin {
                         rolling_shutter_compensation: param_set.parameter("RollingShutterCompensation")?,
                         rolling_shutter_compensation_only: param_set.parameter("RollingShutterCompensationOnly")?,
                         distortion_aware_border:   param_set.parameter("DistortionAwareBorder")?,
+                        manual_lens:               param_set.parameter("ManualLens")?,
+                        manual_focal_length:       param_set.parameter("ManualFocalLength")?,
+                        manual_sensor_width:       param_set.parameter("ManualSensorWidth")?,
+                        manual_distortion_auto:    param_set.parameter("ManualDistortionAuto")?,
+                        manual_distortion:         param_set.parameter("ManualDistortion")?,
                         rolling_shutter_readout: param_set.parameter("RollingShutterReadout")?,
                         horizon_lock_amount:      param_set.parameter("HorizonLockAmount")?,
                         horizon_lock_roll:        param_set.parameter("HorizonLockRoll")?,
@@ -916,7 +926,7 @@ impl Execute for GyroflowPlugin {
                 }
                 if let Ok(path) = props.get_src_file_path() {
                     if !path.is_empty() {
-                        instance_data.file_path = Some(path.clone());
+                        instance_data.file_path = Some(crate::fuscript::replace_frame_count(&path));
                     }
                 }
 
@@ -1141,7 +1151,7 @@ impl Execute for GyroflowPlugin {
                     let group = "RollingShutterGroup";
                     let mut rolling_shutter = param_set.param_define_group(group)?;
                     rolling_shutter.set_label(lang.text(ROLLING_SHUTTER_GROUP.1))?;
-                    rolling_shutter.set_group_open(true)?;
+                    rolling_shutter.set_group_open(false)?;
                     for ((id, label, hint), default) in ROLLING_SHUTTER_TOGGLES.into_iter().zip([false, true]) {
                         let mut toggle = param_set.param_define_boolean(id)?;
                         toggle.set_parent(group)?;
@@ -1186,6 +1196,7 @@ impl Execute for GyroflowPlugin {
                     .set_children(&[
                         "ProjectGroup",
                         "RollingShutterGroup",
+                        "ManualLensGroup",
                         "AdjustGroup",
                         "KeyframesGroup",
                         "ToggleOverview", "DontDrawOutside", "IncludeProjectData", "InfoGroup", WEBSITE_PARAM

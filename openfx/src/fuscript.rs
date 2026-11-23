@@ -9,13 +9,14 @@ Set \"Preferences -> General -> External scripting using\" to \"Local\".\n\n
 It must be the currently displayed video on the timeline.\n
 It is also impossible to query file path on a compound clip.\n\nIn any case, you can just select the video or project file using the \"Browse\" button.";
 
-fn replace_frame_count(input: &str) -> String {
+pub fn replace_frame_count(input: &str) -> String {
     use regex::Regex;
     let re = Regex::new(r"\[(\d+)-(\d+)\]").unwrap();
 
-    re.replace_all(input, |caps: &regex::Captures| {
-        format!("{}", &caps[1])
-    }).to_string()
+    // Resolve reports an image sequence as shot_[0001-0100].dng: the first frame. Leave bracketed folder names alone
+    let filename_start = input.rfind(|c| c == '/' || c == '\\').map_or(0, |index| index + 1);
+    let (parent, filename) = input.split_at(filename_start);
+    format!("{parent}{}", re.replace_all(filename, |caps: &regex::Captures| caps[1].to_owned()))
 }
 
 #[allow(dead_code)]
@@ -121,5 +122,16 @@ impl CurrentFileInfo {
         } else {
             0.0
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_frame_count;
+
+    #[test]
+    fn only_replaces_a_range_in_the_filename() {
+        assert_eq!(replace_frame_count("/Archive [2024-2025]/shot_[0001-0100].dng"), "/Archive [2024-2025]/shot_0001.dng");
+        assert_eq!(replace_frame_count(r"C:\Archive [2024-2025]\shot_[0001-0100].dng"), r"C:\Archive [2024-2025]\shot_0001.dng");
     }
 }

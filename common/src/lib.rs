@@ -6,6 +6,11 @@ use std::sync::{ Arc, Weak, atomic::AtomicBool };
 
 pub mod video_metadata;
 pub mod inspector_language;
+mod cdng;
+mod fsg2;
+mod lensfit;
+mod handoff;
+mod manual_lens;
 pub use inspector_language::InspectorLanguage;
 
 pub use gyroflow_core::{ StabilizationManager, keyframes::*, stabilization::*, filesystem, gpu::* };
@@ -87,6 +92,12 @@ pub enum Params {
     DistortionAwareBorder,
     Language,
     LensProfileList,
+    ManualLensGroup, ManualLensGroupEnd,
+    ManualLens,
+    ManualFocalLength,
+    ManualSensorWidth,
+    ManualDistortionAuto,
+    ManualDistortion,
 }
 
 /// A legacy or newly loaded OFX instance still needs the clip's readout value.
@@ -474,7 +485,7 @@ impl GyroflowPluginBase {
         }
     }
 
-    pub fn get_param_definitions() -> [ParameterType; 15] {
+    pub fn get_param_definitions() -> [ParameterType; 16] {
         [
             ParameterType::HiddenString { id: "InstanceId" },
             ParameterType::HiddenString { id: "ProjectPath" },
@@ -491,6 +502,13 @@ impl GyroflowPluginBase {
                 ParameterType::Button  { id: "OpenGyroflow",      label: "Open Gyroflow",            hint: "Open project in Gyroflow" },
                 ParameterType::Button  { id: "ReloadProject",     label: "Reload project",           hint: "Reload currently loaded project" },
                 ParameterType::Button  { id: "OpenRecentProject", label: "Last saved project",       hint: "Load most recently saved project in the Gyroflow app" },
+            ] },
+            ParameterType::Group { id: "ManualLensGroup", label: "Generic profile", opened: false, parameters: vec![
+                ParameterType::Checkbox { id: "ManualLens",           label: "Use generic profile",          hint: "Stabilize with an uncalibrated lens of the focal length below, in place of the clip's lens profile and any profile loaded with Load preset/lens profile. For a lens without a profile, such as one without electronic contacts.", default: false },
+                ParameterType::Slider   { id: "ManualFocalLength",    label: "Lens focal (mm)",              hint: "The lens's focal length in mm. Set from the clip's metadata when it has one, while Use generic profile is off.", min: 1.0, max: 1000.0, default: 50.0 },
+                ParameterType::Slider   { id: "ManualSensorWidth",    label: "Sensor width (mm)",            hint: "The width of the sensor area the clip records, in mm (36 = full frame, about 23.5 = APS-C / Super 35). The clip's own value is used when it reports one (Sony, SIGMA fp CinemaDNG), and set here while Use generic profile is off.", min: 1.0, max: 100.0, default: 36.0 },
+                ParameterType::Checkbox { id: "ManualDistortionAuto", label: "Typical distortion for focal", hint: "The barrel distortion typical of the focal length (from Gyroflow's lens database), for RAW. Off: use Corner distortion, 0 for video the camera already corrected.", default: true },
+                ParameterType::Slider   { id: "ManualDistortion",     label: "Corner distortion (%)",        hint: "With Typical distortion off: the frame corner against an ideal lens. Negative = barrel, positive = pincushion, 0 = none.", min: -30.0, max: 10.0, default: 0.0 },
             ] },
             ParameterType::Group { id: "AdjustGroup", label: "Adjust parameters", opened: true, parameters: vec![
                 ParameterType::Slider   { id: "Smoothness",             label: "Smoothness",           hint: "Smoothness",                   min: 1.0,    max: 300.0, default: 50.0 },
@@ -1283,7 +1301,25 @@ impl GyroflowPluginBaseInstance {
     /// stretch axes, and the instance id.
     /// The instances that share it share the instance id (see `ever_changed`)
     pub fn stab_key(params: &dyn GyroflowPluginParams) -> PluginResult<String> {
-        Ok(format!("{}{}:{}:{}:{}", params.get_string(Params::ProjectPath)?, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params), GyroflowPluginBase::get_vertical_stretch(params), Self::uses_calibrated_source(params)))
+        let path = params.get_string(Params::ProjectPath)?;
+        let manual_lens = match Self::manual_lens(params, &path) {
+            Some(lens) => format!(":manual{}:{:?}:{}", lens.focal_mm, lens.corner, lens.sensor_width_mm),
+            None => String::new(),
+        };
+        Ok(format!("{}{}:{}:{}:{}{manual_lens}", path, params.get_string(Params::InstanceId)?, GyroflowPluginBase::get_squeeze(params), GyroflowPluginBase::get_vertical_stretch(params), Self::uses_calibrated_source(params)))
+    }
+
+    /// The generic profile, when switched on: it replaces the lens of the clip, of its project and the profile loaded with
+    /// "Load preset/lens profile"
+    fn manual_lens(params: &dyn GyroflowPluginParams, path: &str) -> Option<manual_lens::ManualLens> {
+        if path.is_empty() || !params.get_bool(Params::ManualLens).unwrap_or(false) {
+            return None;
+        }
+        let focal_mm = params.get_f64(Params::ManualFocalLength).ok().filter(|mm| mm.is_finite() && *mm > 0.0)?;
+        let corner = (!params.get_bool(Params::ManualDistortionAuto).unwrap_or(true))
+            .then(|| params.get_f64(Params::ManualDistortion).unwrap_or(0.0) / 100.0);
+        let sensor_width_mm = params.get_f64(Params::ManualSensorWidth).ok().filter(|mm| mm.is_finite() && *mm > 0.0).unwrap_or(36.0);
+        Some(manual_lens::ManualLens { focal_mm, corner, sensor_width_mm })
     }
 
     pub fn distortion_aware_border(params: &dyn GyroflowPluginParams) -> bool {
@@ -1561,11 +1597,15 @@ impl GyroflowPluginBaseInstance {
 
             if !path.ends_with(".gyroflow") {
                 let url = filesystem::path_to_url(&path);
-                // A file that can't be opened (moved, or on a volume that isn't mounted) is one that can't be loaded
-                let loaded = filesystem::open_file(&url, false, false).map_err(gyroflow_core::GyroflowCoreError::from).and_then(|mut file| {
-                    let filesize = file.size;
-                    video_metadata::load_video_file(&stab, file.get_file(), filesize, &url)
-                });
+                let loaded: PluginResult<_> = if cdng::is_dng_path(&path) {
+                    Self::load_cinemadng(&stab, &path, &Self::manual_lens(params, &path).map(|l| l.fsg2_options()).unwrap_or_default())
+                } else {
+                    // A file that can't be opened (moved, or on a volume that isn't mounted) is one that can't be loaded
+                    filesystem::open_file(&url, false, false).map_err(gyroflow_core::GyroflowCoreError::from).and_then(|mut file| {
+                        let filesize = file.size;
+                        video_metadata::load_video_file(&stab, file.get_file(), filesize, &url)
+                    }).map_err(Into::into)
+                };
                 match loaded {
                     Ok(md) => {
                         if out_size != (0, 0) {
@@ -1650,6 +1690,24 @@ impl GyroflowPluginBaseInstance {
                             params.set_f64(Params::InputRotation, GyroflowPluginBase::input_rotation_from_metadata(video_md.rotation))?;
                         }
                     }
+                }
+            }
+
+            // The generic profile's focal length and sensor width follow the clip while it's off, ready to be switched
+            // on; on, they are the user's
+            if !params.get_bool(Params::ManualLens).unwrap_or(false) {
+                let (focal_mm, sensor_width_mm) = manual_lens::clip_lens_metadata(&stab);
+                for (param, value) in [(Params::ManualFocalLength, focal_mm.map(|mm| (mm * 10.0).round() / 10.0)),
+                                       (Params::ManualSensorWidth, sensor_width_mm.map(|mm| (mm * 100.0).round() / 100.0))] {
+                    if let Some(value) = value && params.get_f64(param).ok() != Some(value) {
+                        params.set_f64(param, value)?;
+                    }
+                }
+            }
+            // Over the lens of the clip, of its project and the profile loaded with "Load preset/lens profile"
+            if let Some(lens) = Self::manual_lens(params, &path) {
+                if let Err(e) = manual_lens::apply(&stab, &lens) {
+                    log::error!("Failed to apply the generic profile: {e:?}");
                 }
             }
 
@@ -1810,7 +1868,7 @@ impl GyroflowPluginBaseInstance {
 
     pub fn browse(current_path: &str) -> String {
         let mut d = rfd::FileDialog::new()
-            .add_filter("Project and video files", &["mp4", "mov", "mxf", "braw", "r3d", "nev", "insv", "gyroflow"]);
+            .add_filter("Project and video files", &["mp4", "mov", "mxf", "braw", "r3d", "nev", "insv", "dng", "gyroflow"]);
         if !current_path.is_empty() {
             if let Some(path) = std::path::Path::new(current_path).parent() {
                 d = d.set_directory(path);
@@ -1826,7 +1884,46 @@ impl GyroflowPluginBaseInstance {
     /// Points the effect at `path`, a project or a video picked by the user, and loads all of its values. It's read from the
     /// file, again when it's the one loaded: the project data embedded with "Include project data" is a copy of the one
     /// picked before, for when its file is gone, and it's embedded again from this one
-    fn pick_project(&mut self, params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, path: &str) -> PluginResult<()> {
+    /// A numbered CinemaDNG sequence whose frames carry Gyroflow telemetry in their MakerNote (SIGMA fp with fpSup's
+    /// Gyro2, kind 2 records) or IFD0 tag 65000 (Gyroflow Protobuf). The core can't parse DNGs, so the sequence is
+    /// converted to Gyroflow Protobuf JSONL and loaded from memory, then pointed back at the real frame.
+    fn load_cinemadng(stab: &StabilizationManager, path: &str, lens: &fsg2::Options) -> PluginResult<gyroflow_core::telemetry_parser::util::VideoMetadata> {
+        use std::hash::{ Hash, Hasher };
+        let sequence = cdng::read_embedded_protobuf_sequence_with(std::path::Path::new(path), lens)?;
+        log::info!("CinemaDNG sequence {path}: {} frames, {}x{} @ {:.3} fps, lens data: {}, manual lens: {lens:?}",
+            sequence.frame_count, sequence.width, sequence.height, sequence.fps, !sequence.lens_missing);
+        if sequence.lens_missing {
+            log::warn!("The CinemaDNG frames carry no lens data: load a lens profile, or use a generic profile");
+        }
+        let metadata = gyroflow_core::telemetry_parser::util::VideoMetadata {
+            width: sequence.width,
+            height: sequence.height,
+            fps: sequence.fps,
+            duration_s: sequence.frame_count as f64 / sequence.fps,
+            rotation: sequence.rotation,
+        };
+        // A distinct name per telemetry, so the core's gyro metadata cache never serves another take's data
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        sequence.jsonl.hash(&mut hasher);
+        let virtual_path = std::path::Path::new(path).with_extension(format!("cdng-{:016x}.jsonl", hasher.finish()));
+        let virtual_url = filesystem::path_to_url(&virtual_path.to_string_lossy());
+        let mut stream = std::io::Cursor::new(&sequence.jsonl);
+        let md = stab.load_video_file(&mut stream, sequence.jsonl.len() as u64, &virtual_url, Some(metadata), true)?;
+        // The core ignores telemetry parse errors; Gyroflow Protobuf has one timing offset per frame
+        if stab.gyro.read().file_metadata.read().per_frame_time_offsets.len() != sequence.frame_count {
+            return Err("Gyroflow could not parse the telemetry embedded in the CinemaDNG frames".into());
+        }
+        let source_url = filesystem::path_to_url(path);
+        stab.gyro.write().file_url = source_url.clone();
+        stab.input_file.write().url = source_url;
+        // Not rounded from duration * fps, which can add a phantom frame
+        let mut clip_params = stab.params.write();
+        clip_params.frame_count = sequence.frame_count;
+        clip_params.duration_ms = sequence.frame_count as f64 * 1000.0 / sequence.fps;
+        Ok(md)
+    }
+
+    fn pick_project(&mut self,params: &mut dyn GyroflowPluginParams, manager_cache: &Mutex<LruCache<String, Arc<StabilizationManager>>>, path: &str) -> PluginResult<()> {
         params.set_string(Params::ProjectPath, path)?;
         params.set_string(Params::ProjectData, "")?;
         if params.get_f64(Params::RollingShutterReadout).is_ok() {
@@ -1985,7 +2082,25 @@ impl GyroflowPluginBaseInstance {
             }
         }
         if param == Params::OpenGyroflow {
-            GyroflowPluginBase::open_gyroflow(params.get_string(Params::ProjectPath).ok().as_deref());
+            let path = params.get_string(Params::ProjectPath)?;
+            if cdng::is_dng_path(&path) {
+                // The app can't read the telemetry in the frames: give it a project carrying the parsed data, which
+                // then becomes this effect's source, so edits saved in the app come back with Reload project
+                let project = self.stab_manager(params, manager_cache, self.timeline_size, false)
+                    .and_then(|stab| handoff::save_project(&stab, std::path::Path::new(&path)));
+                match project {
+                    Ok(project) => {
+                        let project = project.to_string_lossy().into_owned();
+                        self.pick_project(params, manager_cache, &project)?;
+                        GyroflowPluginBase::open_gyroflow(Some(&project));
+                    }
+                    Err(e) => {
+                        rfd::MessageDialog::new().set_description(format!("Unable to send the CinemaDNG data to Gyroflow: {e}")).show();
+                    }
+                }
+            } else {
+                GyroflowPluginBase::open_gyroflow(Some(&path));
+            }
         }
         if param == Params::OpenRecentProject {
             let last_project = gyroflow_core::settings::get_str("lastProject", "");
@@ -2006,7 +2121,10 @@ impl GyroflowPluginBaseInstance {
             }
             self.keep_adjustments = false;
         }
-        if param == Params::ProjectPath || param == Params::ReloadProject || param == Params::DontDrawOutside {
+        if param == Params::ProjectPath || param == Params::ReloadProject || param == Params::DontDrawOutside
+            || (param == Params::ManualLens && user_edited)
+            || (matches!(param, Params::ManualFocalLength | Params::ManualSensorWidth | Params::ManualDistortionAuto | Params::ManualDistortion)
+                && user_edited && params.get_bool(Params::ManualLens).unwrap_or(false)) {
             if (param == Params::ReloadProject || (param == Params::ProjectPath && user_edited))
                 && params.get_f64(Params::RollingShutterReadout).is_ok()
             {
@@ -2313,6 +2431,82 @@ macro_rules! define_params {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// GYROFLOW_FP_DNG_DIR=<folder of a SIGMA fp CinemaDNG take recorded with fpSup's Gyro2>
+    #[test]
+    #[ignore = "requires a SIGMA fp CinemaDNG take with embedded gyro data"]
+    fn sigma_fp_cinemadng_loads_and_hands_off() {
+        let dir = std::env::var("GYROFLOW_FP_DNG_DIR").expect("set GYROFLOW_FP_DNG_DIR");
+        let mut frames: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path())
+            .filter(|p| cdng::is_dng_path(&p.to_string_lossy())).collect();
+        frames.sort();
+        // Any frame of the take selects the whole take
+        let path = frames[frames.len() / 2].to_string_lossy().into_owned();
+        let stab = StabilizationManager::default();
+        GyroflowPluginBaseInstance::load_cinemadng(&stab, &path, &fsg2::Options::default()).unwrap();
+        {
+            let params = stab.params.read();
+            assert_eq!(params.frame_count, frames.len());
+            assert!(params.fps > 0.0 && params.size.0 > 0 && params.size.1 > 0);
+            let gyro = stab.gyro.read();
+            assert!(gyro.file_metadata.read().has_accurate_timestamps);
+            assert!(gyro.quaternions.len() > frames.len());
+            assert_eq!(stab.input_file.read().url, filesystem::path_to_url(&path));
+        }
+
+        // The app gets the parsed data, and the project reloads in the plugin without the DNGs' private data
+        let project = handoff::project_data(&stab, std::path::Path::new(&path)).unwrap();
+        assert!(StabilizationManager::project_has_motion_data(project.as_bytes()));
+        let reloaded = StabilizationManager::default();
+        let mut is_preset = false;
+        reloaded.import_gyroflow_data(project.as_bytes(), true, None, |_| (), Arc::new(AtomicBool::new(false)), &mut is_preset, true).unwrap();
+        assert_eq!(reloaded.gyro.read().quaternions.len(), stab.gyro.read().quaternions.len());
+
+        // A take shot on a lens without contacts gets a camera matrix for every frame from the manual focal
+        if stab.gyro.read().file_metadata.read().lens_params.is_empty() {
+            let manual = StabilizationManager::default();
+            let lens = fsg2::Options { manual_focal_mm: Some(35.0), manual_corner: None };
+            GyroflowPluginBaseInstance::load_cinemadng(&manual, &path, &lens).unwrap();
+            let gyro = manual.gyro.read();
+            let md = gyro.file_metadata.read();
+            assert_eq!(md.lens_params.len(), frames.len());
+            let first = md.lens_params.values().next().unwrap();
+            println!("manual 35 mm: focal {:?}, pixel focal {:?}, coefficients {:?}", first.focal_length, first.pixel_focal_length, first.distortion_coefficients);
+            assert_eq!(first.focal_length, Some(35.0));
+            drop(md); drop(gyro);
+            let sensor = manual_lens::clip_sensor_width_mm(&manual).unwrap();
+            println!("sensor width from the frames: {sensor:.2} mm");
+            assert!((30.0..37.0).contains(&sensor));
+        }
+    }
+
+    #[test]
+    fn generic_profile_applies_when_switched_on() {
+        use manual_lens::ManualLens;
+        let dng = "C:/take/A001_000001.DNG";
+        let mut params = TestParams::default();
+        params.strings.insert(Params::ProjectPath, dng.into());
+        params.bools.insert(Params::ManualDistortionAuto, true);
+        params.f64s.insert(Params::ManualFocalLength, 80.0);
+        params.f64s.insert(Params::ManualSensorWidth, 36.0);
+        assert_eq!(GyroflowPluginBaseInstance::manual_lens(&params, dng), None, "off by default");
+        let off_key = GyroflowPluginBaseInstance::stab_key(&params).unwrap();
+
+        params.bools.insert(Params::ManualLens, true);
+        assert_eq!(GyroflowPluginBaseInstance::manual_lens(&params, dng), Some(ManualLens { focal_mm: 80.0, corner: None, sensor_width_mm: 36.0 }));
+        let on_key = GyroflowPluginBaseInstance::stab_key(&params).unwrap();
+        assert_ne!(on_key, off_key, "switching it on loads the clip again");
+
+        params.bools.insert(Params::ManualDistortionAuto, false);
+        params.f64s.insert(Params::ManualDistortion, -5.0);
+        assert_eq!(GyroflowPluginBaseInstance::manual_lens(&params, dng).unwrap().corner, Some(-0.05));
+        assert_ne!(GyroflowPluginBaseInstance::stab_key(&params).unwrap(), on_key, "a change loads the clip again");
+
+        assert!(GyroflowPluginBaseInstance::manual_lens(&params, "C:/clip/A001.MP4").is_some(), "any clip");
+        assert!(GyroflowPluginBaseInstance::manual_lens(&params, "C:/clip/A001.gyroflow").is_some(), "over a project's lens");
+        params.strings.insert(Params::EmbeddedLensProfile, "{\"calibrated_by\":\"me\"}".into());
+        assert!(GyroflowPluginBaseInstance::manual_lens(&params, dng).is_some(), "over a loaded lens profile");
+    }
 
     /// Parameters as a host keeps them, none keyframed
     #[derive(Default, Clone)]
@@ -2959,6 +3153,49 @@ mod tests {
         assert_eq!(stab.lens.read().frame_readout_time, Some(99.0));
     }
 
+    /// GYROFLOW_GENERIC_SONY_CLIP=<a Sony clip>, GYROFLOW_GENERIC_SONY_PROFILE=<a calibrated profile of its lens>
+    #[test]
+    #[ignore = "requires a Sony clip and a calibrated profile of its lens"]
+    fn generic_profile_fills_from_the_clip_and_overrides_a_loaded_profile() {
+        let path = std::env::var("GYROFLOW_GENERIC_SONY_CLIP").unwrap();
+        let profile = std::fs::read_to_string(std::env::var("GYROFLOW_GENERIC_SONY_PROFILE").unwrap()).unwrap();
+        let mut params = params();
+        params.set_string(Params::ProjectPath, &path).unwrap();
+        params.set_f64(Params::VideoSpeed, 100.0).unwrap();
+        params.set_string(Params::EmbeddedLensProfile, &profile).unwrap();
+        params.set_bool(Params::ManualDistortionAuto, false).unwrap();
+        params.set_f64(Params::ManualFocalLength, 50.0).unwrap();
+        params.set_f64(Params::ManualSensorWidth, 36.0).unwrap();
+
+        // Off: the loaded profile, and the clip's focal length and sensor width ready in the settings
+        let mut instance = GyroflowPluginBaseInstance { reload_values_from_project: false, ..Default::default() };
+        let stab = instance.stab_manager(&mut params, &cache(), (3840, 2160), false).unwrap();
+        let calibrated_fx = stab.lens.read().fisheye_params.camera_matrix[0][0];
+        assert!(!stab.lens.read().lens_model.starts_with("Generic profile"));
+        let focal = params.get_f64(Params::ManualFocalLength).unwrap();
+        let sensor = params.get_f64(Params::ManualSensorWidth).unwrap();
+        println!("off: {} fx {calibrated_fx:.0}; filled in: focal {focal} mm, sensor width {sensor} mm", stab.lens.read().lens_model);
+        assert_ne!(focal, 50.0);
+        assert!((sensor - 31.22).abs() < 0.01, "{sensor}");
+
+        // On: the generic profile, over the loaded one
+        params.set_bool(Params::ManualLens, true).unwrap();
+        instance.param_changed(&mut params, &cache(), Params::ManualLens, true).unwrap();
+        let stab = instance.stab_manager(&mut params, &cache(), (3840, 2160), false).unwrap();
+        let lens = stab.lens.read();
+        let fx = lens.fisheye_params.camera_matrix[0][0];
+        println!("on: {} fx {fx:.0}", lens.lens_model);
+        assert!(lens.lens_model.starts_with("Generic profile"));
+        assert!((fx - 3840.0 * focal / sensor).abs() < 1.0);
+        drop(lens);
+
+        // Off again: the loaded profile is back
+        params.set_bool(Params::ManualLens, false).unwrap();
+        instance.param_changed(&mut params, &cache(), Params::ManualLens, true).unwrap();
+        let stab = instance.stab_manager(&mut params, &cache(), (3840, 2160), false).unwrap();
+        assert_eq!(stab.lens.read().fisheye_params.camera_matrix[0][0], calibrated_fx);
+    }
+
     #[test]
     fn clip_json_initializes_ofx_readout_and_preserves_a_manual_value() {
         use gyroflow_core::stabilization_params::ReadoutDirection;
@@ -3315,3 +3552,4 @@ mod tests {
         assert!(!original.matches_scaled(&Footage { size: (1920, 1080), duration_ms: 12_000.0, ..original }));
     }
 }
+

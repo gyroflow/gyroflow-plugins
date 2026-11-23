@@ -88,6 +88,37 @@ For Sigma FP2 MOV clips, the plugin accepts a matching gyro sidecar as synced wh
 start at zero and end between 1 ms before and 300 ms after the clip ends. The plugin
 keeps the recorded sample timestamps.
 
+### SIGMA fp CinemaDNG with embedded gyro data
+
+SIGMA fp CinemaDNG takes recorded with fpSup's Gyro2 carry the gyro record in each frame's MakerNote.
+Choose **Browse**, then select any DNG in the take, or use **Load for current file**. The plugin reads the
+gyro, frame timing, readout time, and the lens's focal length and distortion from the DNG frames. It
+doesn't need a sidecar file. A gap in the frame numbers splits the take, and the plugin loads the
+consecutive run that contains the selected frame.
+
+For a lens without electronic contacts, the frames have no lens data. Select a lens profile with
+**Load preset/lens profile**, or use **Generic profile** (below). **Open in Gyroflow** saves a project that contains the parsed motion data
+and opens it in the app, because the app can't read the DNG telemetry. The effect then uses that
+project, so **Reload project** applies the edits you save in Gyroflow.
+
+### Generic profile
+
+For a lens without a profile, such as one without electronic contacts, open **Generic profile**, turn
+on **Use generic profile**, and check **Lens focal (mm)**. The plugin then stabilizes with an
+uncalibrated rectilinear lens of that focal length. This works for video clips, CinemaDNG takes, and
+projects. When it's on, it replaces the clip's lens and any profile loaded with **Load preset/lens
+profile**. Turn it off to go back to them.
+
+- **Lens focal (mm)** and **Sensor width (mm)**: while the profile is off, the plugin fills these in
+  from the clip's metadata when the clip has it (Sony clips and SIGMA fp CinemaDNG with an electronic
+  lens). Your values stand while it's on.
+- **Sensor width (mm):** the width of the sensor area the clip records. When the clip reports it, the
+  clip's value is used. Otherwise set it yourself: 36 for full frame, about 23.5 for APS-C or Super 35.
+- **Typical distortion for focal:** adds the barrel distortion typical of the focal length, from
+  SIGMA fp profiles in Gyroflow's lens database. This suits RAW. For video the camera has already
+  corrected for distortion (Sony's in-camera lens compensation, for example), so turn it off and leave
+  **Corner distortion (%)** at 0. Negative values are barrel, positive values are pincushion.
+
 The plugin also reads matching JSON clip metadata. For directly loaded clips, `frame_readout_time`
 (in milliseconds) and `frame_readout_direction` supply the detected rolling shutter setting. You can
 override the time under **Rolling Shutter**. Select the lens calibration with **Load preset/lens profile**.

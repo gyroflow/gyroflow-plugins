@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- OpenFX: added **Generic profile**, an uncalibrated lens built from a focal length. It has a Use generic profile switch (off by default), Lens focal (mm), Sensor width (mm), and typical or set corner distortion. It works on video clips, SIGMA fp CinemaDNG takes and projects. When on, it replaces the clip's lens and any loaded lens profile. While it's off, focal length and sensor width are filled in from the clip's metadata (Sony, SIGMA fp). Checked against a calibrated zoom profile on Sony A9III clips at 17.5–38.7 mm: the focal length is within 1 %. The Rolling Shutter group now starts collapsed.
+- Load SIGMA fp CinemaDNG takes with gyro data embedded by fpSup Gyro2 (ported from ijigen/gyroflow-plugins `feature/cdng-makernote`). The plugin reads FSG2 records from each frame's MakerNote (v1 tail block or v2 tag `0x4653`) and Gyroflow Protobuf in IFD0 tag 65000. It also reads per-frame lens data and Vd frame timing. Browse accepts `.dng`. Resolve's `name_[0001-0157].dng` sequence paths resolve to the first frame. Open in Gyroflow hands the app a project with the parsed data.
 - Fixed a Resolve project-open crash when OpenFX sends a parameter change before Gyroflow Omni has registered its instance data.
 - Accept matching Sigma FP2 CSV gyro logs as synced when they cover the MOV clip and extend up to 300 ms past it. Keep the original gyro timestamps.
 - OpenFX in Resolve: rebuild anamorphic framing and zoom from the timeline render after project reopen, even when Resolve renders a thumbnail first. Restore the source dimensions and refresh the crop guide when reusing a cached stabilization.
