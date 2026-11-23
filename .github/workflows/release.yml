@@ -1,4 +1,5 @@
-on: [push, pull_request]
+# Omni releases are built locally with omni-release.ps1 / omni-release.sh, so this upstream workflow only runs when started by hand.
+on: [workflow_dispatch]
 name: Release
 
 jobs:

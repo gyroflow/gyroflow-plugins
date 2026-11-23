@@ -28,6 +28,9 @@ deploy:
     #!/bin/bash
     set -e
 
+    # Sign with the Developer ID when SIGNING_FINGERPRINT is set, otherwise ad-hoc (no Apple Developer account needed).
+    if [[ -n "$SIGNING_FINGERPRINT" ]]; then SIGN_ARGS="--options=runtime --timestamp -s $SIGNING_FINGERPRINT"; else SIGN_ARGS="-s -"; fi
+
     rustup target add aarch64-apple-darwin
     rustup target add x86_64-apple-darwin
 
@@ -37,7 +40,7 @@ deploy:
     version=$(grep '^version' Cargo.toml | sed -E 's/version = "(.+)".*/\1/')
     version_short=$(echo $version | sed -E 's/-.*//')
 
-    if [[ "$GITHUB_REF" == *"tags"* ]]; then
+    if [[ "$GITHUB_REF" == *"tags"* || "$OMNI_RELEASE" == "1" ]]; then
         version="${version}.0"
         version_short="${version_short}.0"
     else
@@ -67,7 +70,7 @@ deploy:
     lipo {x86_64,aarch64}-apple-darwin/deploy/libgyroflow_adobe.dylib -create -output gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib
     mv gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow.dylib gyroflow-adobe-macos/Gyroflow.plugin/Contents/MacOS/Gyroflow
 
-    codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-adobe-macos/Gyroflow.plugin
+    codesign -vvvv --deep --strict --force $SIGN_ARGS gyroflow-adobe-macos/Gyroflow.plugin
     codesign -vvvv --deep --verify gyroflow-adobe-macos/Gyroflow.plugin
 
     pushd gyroflow-adobe-macos
@@ -77,7 +80,7 @@ deploy:
     ln -sf "/Library/Application Support/Adobe/Common/Plug-ins/7.0/MediaCore/" "gyroflow-adobe-macos/"
     hdiutil create "Gyroflow-Adobe-macos.dmg" -volname "Gyroflow Adobe plugin" -fs HFS+ -srcfolder "gyroflow-adobe-macos/" -ov -format UDZO -imagekey zlib-level=9
 
-    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} "Gyroflow-Adobe-macos.dmg"
+    codesign -vvvv --strict --force $SIGN_ARGS "Gyroflow-Adobe-macos.dmg"
     codesign -vvvv --deep --verify "Gyroflow-Adobe-macos.dmg"
 
 [linux]

@@ -3,7 +3,7 @@
 
 # Gyroflow (Omni) OpenFX plugin
 
-The Resolve library name is **Gyroflow (Omni)**. The long effect label includes version **2.2.7** for hosts that use it in the effect header. Package versions are changed only when explicitly requested.
+The Resolve library name is **Gyroflow (Omni)**. The long effect label includes version **1.0.0** for hosts that use it in the effect header. Package versions are changed only when explicitly requested.
 
 * Works with stabilization data exported with [gyroflow](http://gyroflow.xyz/)
 * Allows you to apply the stabilization right in your OpenFX-capable video editor

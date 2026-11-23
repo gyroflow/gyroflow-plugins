@@ -26,6 +26,9 @@ deploy:
     #!/bin/bash
     set -e
 
+    # Sign with the Developer ID when SIGNING_FINGERPRINT is set, otherwise ad-hoc (no Apple Developer account needed).
+    if [[ -n "$SIGNING_FINGERPRINT" ]]; then SIGN_ARGS="--options=runtime --timestamp -s $SIGNING_FINGERPRINT"; else SIGN_ARGS="-s -"; fi
+
     rustup target add aarch64-apple-darwin
     rustup target add x86_64-apple-darwin
 
@@ -35,7 +38,7 @@ deploy:
     version=$(grep '^version' Cargo.toml | sed -E 's/version = "(.+)".*/\1/')
     version_short=$(echo $version | sed -E 's/-.*//')
 
-    if [[ "$GITHUB_REF" == *"tags"* ]]; then
+    if [[ "$GITHUB_REF" == *"tags"* || "$OMNI_RELEASE" == "1" ]]; then
         version="${version}.0"
         version_short="${version_short}.0"
     else
@@ -59,10 +62,10 @@ deploy:
     /usr/libexec/PlistBuddy -c "add CFBundleVersion string $version_short" gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/Info.plist
     /usr/libexec/PlistBuddy -c "add CFBundleShortVersionString string $version" gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/Info.plist
 
-    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib
+    codesign -vvvv --strict --force $SIGN_ARGS gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib
     mv gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/Gyroflow.dylib gyroflow-ofx-macos/GyroflowOmni.ofx.bundle/Contents/MacOS/GyroflowOmni.ofx
 
-    codesign -vvvv --deep --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} gyroflow-ofx-macos/GyroflowOmni.ofx.bundle
+    codesign -vvvv --deep --strict --force $SIGN_ARGS gyroflow-ofx-macos/GyroflowOmni.ofx.bundle
     codesign -vvvv --deep --verify gyroflow-ofx-macos/GyroflowOmni.ofx.bundle
 
     pushd gyroflow-ofx-macos
@@ -72,7 +75,7 @@ deploy:
     ln -sf /Library/OFX/Plugins "gyroflow-ofx-macos/"
     hdiutil create "Gyroflow-OpenFX-macos.dmg" -volname "Gyroflow (Omni) OpenFX plugin" -fs HFS+ -srcfolder "gyroflow-ofx-macos/" -ov -format UDZO -imagekey zlib-level=9
 
-    codesign -vvvv --strict --options=runtime --timestamp --force -s ${SIGNING_FINGERPRINT} "Gyroflow-OpenFX-macos.dmg"
+    codesign -vvvv --strict --force $SIGN_ARGS "Gyroflow-OpenFX-macos.dmg"
     codesign -vvvv --deep --verify "Gyroflow-OpenFX-macos.dmg"
 
 [linux]

@@ -5,10 +5,18 @@ const PF_PLUG_IN_VERSION: u16 = 13;
 const PF_PLUG_IN_SUBVERS: u16 = 28;
 
 fn main() {
+    for var in ["OMNI_RELEASE", "GITHUB_REF", "GITHUB_RUN_NUMBER"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
     #[cfg(target_os = "windows")] {
         let mut version = std::env::var("CARGO_PKG_VERSION").unwrap();
 
-        if std::env::var("GITHUB_REF").map(|x| x.contains("tags")).unwrap_or_default() {
+        // OMNI_RELEASE=1 marks a local release build (Omni has no CI), the same as a tagged CI build.
+        let is_release = std::env::var("GITHUB_REF").map(|x| x.contains("tags")).unwrap_or_default()
+            || std::env::var("OMNI_RELEASE").map(|x| x == "1").unwrap_or_default();
+        if is_release {
             version.push_str(".0");
         } else if let Ok(github_run_number) = std::env::var("GITHUB_RUN_NUMBER") {
             version.push_str(&format!(".{}", github_run_number));

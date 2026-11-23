@@ -1319,6 +1319,8 @@ dependencies = [
 name = "gyroflow-plugin-base"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
+ "crc32fast",
  "fastrand",
  "gyroflow-core",
  "itertools 0.15.0",
@@ -1328,6 +1330,7 @@ dependencies = [
  "lru",
  "oslog",
  "parking_lot 0.13.0",
+ "prost",
  "rfd",
  "serde",
  "serde_json",
@@ -1338,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "gyroflow_adobe"
-version = "2.2.1"
+version = "1.0.0"
 dependencies = [
  "after-effects",
  "bincode",

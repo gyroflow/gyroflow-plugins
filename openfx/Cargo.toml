@@ -1,7 +1,7 @@
 [package]
 name = "gyroflow-ofx"
 # Change the package version only when explicitly requested.
-version = "2.2.7"
+version = "1.0.0"
 authors = ["Adrian <adrian.eddy@gmail.com>", "Ilya Epifanov <elijah.epifanov@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
