@@ -106,11 +106,11 @@ if (-not $SkipBuild) {
     } finally { Pop-Location; Remove-Item Env:OMNI_RELEASE }
 }
 
-$files = foreach ($name in $WindowsAssets) {
+$files = @(foreach ($name in $WindowsAssets) {
     $path = Join-Path $Target $name
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing $path" }
     $path
-}
+})
 $ofx = Join-Path $Target 'gyroflow-ofx-windows/GyroflowOmni.ofx.bundle/Contents/Win64/GyroflowOmni.ofx'
 $ofxVersion = (Get-Item -LiteralPath $ofx).VersionInfo.ProductVersion
 if ($ofxVersion -ne "$Version.0") { throw "GyroflowOmni.ofx reports version $ofxVersion, expected $Version.0. Rebuild without -SkipBuild." }
