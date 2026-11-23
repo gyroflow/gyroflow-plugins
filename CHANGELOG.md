@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed a Resolve project-open crash when OpenFX sends a parameter change before Gyroflow Omni has registered its instance data.
+- Accept matching Sigma FP2 CSV gyro logs as synced when they cover the MOV clip and extend up to 300 ms past it. Keep the original gyro timestamps.
 - OpenFX in Resolve: rebuild anamorphic framing and zoom from the timeline render after project reopen, even when Resolve renders a thumbnail first. Restore the source dimensions and refresh the crop guide when reusing a cached stabilization.
 - Removed the "Disable Gyroflow's stretch" parameter. The plugin always keeps the recorded (squeezed) pixels and the host de-squeezes after the effect, as anamorphic mode already did whether the box was checked or not. Embedded project data no longer carries the `plugin_disable_stretch` flag, and Adobe hosts no longer set it from the media's pixel aspect.
 - OpenFX: anamorphic clips are now stabilized to the part of the clip the timeline shows once de-squeezed (the SqueezeBorder region), not the whole de-squeezed frame. The auto zoom fits that window and the stabilized image is drawn into it, so a vertical 1.5x clip in a 2880x3840 timeline is no longer zoomed about 12% more than needed, and raising FOV crops right away. This restores the border-fitted zoom lost when the plugin moved to the upstream core.

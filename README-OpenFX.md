@@ -84,6 +84,10 @@ the plugin looks alongside it for a matching `.gcsv` or `.csv`. The files must s
 the clip's base name, such as `A001_007_20261119.MOV` and `A001_007_20261119.CSV`. CSV logs must use a
 format Gyroflow understands, such as Sigma's `CAMERA IMU LOG`. Lowercase and uppercase extensions work.
 
+For Sigma FP2 MOV clips, the plugin accepts a matching gyro sidecar as synced when its samples
+start at zero and end between 1 ms before and 300 ms after the clip ends. The plugin
+keeps the recorded sample timestamps.
+
 The plugin also reads matching JSON clip metadata. For directly loaded clips, `frame_readout_time`
 (in milliseconds) and `frame_readout_direction` supply the detected rolling shutter setting. You can
 override the time under **Rolling Shutter**. Select the lens calibration with **Load preset/lens profile**.

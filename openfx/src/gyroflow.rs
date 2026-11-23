@@ -901,12 +901,9 @@ impl Execute for GyroflowPlugin {
                     current_file_info_pending: Arc::new(AtomicBool::new(false)),
                 };
                 let language = instance_data.params.language();
-                if language != described_language() {
-                    relabel_params(&param_set, language);
-                }
                 let mut instance_id = instance_data.params.get_string(Params::InstanceId).unwrap_or_default();
+                let needs_instance_id = instance_id.is_empty();
                 instance_data.plugin.initialize_instance_id(&mut instance_id);
-                let _ = instance_data.params.set_string(Params::InstanceId, &instance_id);
 
                 let props: EffectInstance = effect.properties()?;
                 if matches!(props.get_resolve_page().as_deref(), Ok("Edit") | Ok("Color")) {
@@ -925,9 +922,21 @@ impl Execute for GyroflowPlugin {
 
                 effect.set_instance_data(instance_data)?;
 
+                // Resolve can call InstanceChanged synchronously during host parameter writes.
+                if needs_instance_id {
+                    let _ = param_set.parameter::<String>("InstanceId")?.set_value(instance_id);
+                }
+                if language != described_language() {
+                    relabel_params(&param_set, language);
+                }
+
                 OK
             }
             InstanceChanged(ref mut effect, ref mut in_args) => {
+                let props: EffectInstance = effect.properties()?;
+                if <VoidPtr as RawGetter<_>>::get_at(&props, c"OfxPropInstanceData".as_ptr(), 0)?.is_null() {
+                    return REPLY_DEFAULT;
+                }
                 if in_args.get_name()? == WEBSITE_PARAM {
                     if in_args.get_change_reason()? == Change::UserEdited {
                         open_website();

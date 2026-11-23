@@ -4,13 +4,15 @@ use gyroflow_core::stabilization_params::ReadoutDirection;
 use gyroflow_core::lens_profile::LensProfile;
 use gyroflow_core::{GyroflowCoreError, StabilizationManager, filesystem, telemetry_parser};
 use serde_json::Value;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, atomic::AtomicBool};
 use telemetry_parser::util::VideoMetadata;
 
 const SIDECAR_METADATA: &str = "video_sidecar_metadata";
 const SONY_METADATA_LIMIT: u64 = 1024 * 1024;
+const SIGMA_FP2_MAX_GYRO_TAIL_MS: f64 = 300.0;
+const SIGMA_FP2_GYRO_SAMPLE_MS: f64 = 1.0;
 
 #[derive(Default)]
 struct SonyMetadata {
@@ -144,6 +146,7 @@ pub fn load_video_file<T: Read + Seek>(
                 }
             }
         }
+        accept_sigma_fp2_motion_timing(stab, url, metadata.duration_s * 1000.0);
         for extension in ["json", "JSON"] {
             if load_metadata_sidecar(stab, &path.with_extension(extension)) {
                 break;
@@ -151,6 +154,68 @@ pub fn load_video_file<T: Read + Seek>(
         }
     }
     Ok(metadata)
+}
+
+fn sigma_fp2_log_starts_at_zero(url: &str) -> Option<bool> {
+    let mut file = filesystem::open_file(url, false, false).ok()?;
+    let mut lines = BufReader::new(file.get_file().take(4096)).lines();
+    if lines.next()?.ok()?.trim() != "CAMERA IMU LOG" {
+        return Some(false);
+    }
+    // Core normalizes generic CSV timestamps to zero. Check the camera's
+    // original first sample so a late-starting log cannot be accepted.
+    lines.by_ref().map_while(Result::ok).find(|line| line.trim().starts_with("t,gx,gy,gz"))?;
+    let sample = lines.next()?.ok()?;
+    Some(sample.split_once(',')?.0.trim().parse::<f64>().ok()? == 0.0)
+}
+
+fn accept_sigma_fp2_motion_timing(stab: &StabilizationManager, video_url: &str, duration_ms: f64) {
+    let mut gyro = stab.gyro.write();
+    let video_name = filesystem::get_filename(video_url);
+    let Some((video_stem, video_ext)) = video_name.rsplit_once('.') else {
+        return;
+    };
+    if !video_ext.eq_ignore_ascii_case("mov") || gyro.quaternions.len() < 2 {
+        return;
+    }
+    let accepted_metadata = {
+        let metadata = gyro.file_metadata.read();
+        if metadata.has_accurate_timestamps || metadata.detected_source.as_deref() != Some("gcsv Sigma FP2") {
+            return;
+        }
+        let mut samples = gyro.raw_imu(&metadata).iter().filter(|sample| sample.gyro.is_some());
+        let (Some(first), Some(last)) = (samples.next(), samples.next_back()) else {
+            return;
+        };
+        let tail_ms = last.timestamp_ms - duration_ms;
+        // The camera's gyro clock starts with the clip and continues past the last video frame.
+        // Allow one IMU sample of endpoint rounding and keep the original sample times.
+        if !(-SIGMA_FP2_GYRO_SAMPLE_MS..=SIGMA_FP2_GYRO_SAMPLE_MS).contains(&first.timestamp_ms)
+            || !(-SIGMA_FP2_GYRO_SAMPLE_MS..=SIGMA_FP2_MAX_GYRO_TAIL_MS).contains(&tail_ms)
+        {
+            return;
+        }
+        // Core retains the video URL for its own sidecar lookup. Follow its
+        // extension order for GCSV-format logs. Our fallback keeps the log URL.
+        let gyro_url = if gyro.file_url == video_url {
+            ["gcsv", "csv", "GCSV", "CSV"].into_iter()
+                .find_map(|ext| telemetry_parser::filesystem::file_with_extension(video_url, ext))
+        } else {
+            let gyro_name = filesystem::get_filename(&gyro.file_url);
+            gyro_name.rsplit_once('.').filter(|(stem, ext)| {
+                *stem == video_stem
+                    && (ext.eq_ignore_ascii_case("csv") || ext.eq_ignore_ascii_case("gcsv"))
+                    && filesystem::get_folder(video_url) == filesystem::get_folder(&gyro.file_url)
+            }).map(|_| gyro.file_url.clone())
+        };
+        if gyro_url.as_deref().and_then(sigma_fp2_log_starts_at_zero) != Some(true) {
+            return;
+        }
+        let mut accepted = metadata.clone();
+        accepted.has_accurate_timestamps = true;
+        accepted
+    };
+    gyro.file_metadata = accepted_metadata.into();
 }
 
 pub(crate) fn zoom_focal_range(profile: &LensProfile) -> Option<(f64, f64)> {
@@ -444,6 +509,39 @@ mod tests {
                 .read()
                 .has_accurate_timestamps
         );
+
+        for (id, first_ms, last_ms, expected_synced) in [
+            ("Sigma_FP2", 0, 347, true),
+            ("Sigma_FP2", 0, 384, false),
+            ("Sigma_FP2", 25, 347, false),
+            ("Other", 0, 347, false),
+        ] {
+            use std::fmt::Write;
+            // Core caches telemetry by its file URL, so each case needs a distinct pair.
+            let path = directory.join(format!("{id}-{first_ms}-{last_ms}.MOV"));
+            let url = filesystem::path_to_url(&path.to_string_lossy());
+            std::fs::write(&path, video).unwrap();
+            let mut csv = format!(
+                "CAMERA IMU LOG\nversion,1.3\nid,{id}\norientation,XYZ\ntscale,0.001\ngscale,1\nt,gx,gy,gz\n",
+            );
+            for timestamp in first_ms..=last_ms {
+                writeln!(csv, "{timestamp},1,2,3").unwrap();
+            }
+            std::fs::write(path.with_extension("CSV"), csv).unwrap();
+            let stab = StabilizationManager::default();
+            load_video_file(&stab, &mut Cursor::new(video), video.len() as u64, &url).unwrap();
+            let gyro = stab.gyro.read();
+            let motion = gyro.file_metadata.read();
+            let samples = gyro.raw_imu(&motion);
+            assert_eq!(motion.has_accurate_timestamps, expected_synced, "{id}, {first_ms}..{last_ms} ms");
+            assert!(gyro.get_offsets().is_empty());
+            if expected_synced {
+                assert!((samples.last().unwrap().timestamp_ms - f64::from(last_ms)).abs() < 1e-6);
+            }
+            std::fs::remove_file(path.with_extension("CSV")).unwrap();
+            std::fs::remove_file(path).unwrap();
+        }
+
         std::fs::write(
             path.with_extension("gcsv"),
             "GYROFLOW IMU LOG\nversion,1.3\nid,Test\norientation,XYZ\nt,gx,gy,gz\n0,1,2,3\n25,2,3,4\n50,3,4,5\n75,4,5,6\n",
@@ -480,8 +578,19 @@ mod tests {
         let stab = StabilizationManager::default();
         let video = load_video_file(&stab, &mut stream, size, &url).unwrap();
         assert_eq!((video.width, video.height), (3424, 2576));
+        assert!((video.duration_s - 18.018).abs() < 1e-6);
+        assert_eq!(stab.params.read().frame_count, 1080);
         let sample_count = stab.gyro.read().quaternions.len();
         assert!(sample_count > 1000);
+        {
+            let gyro = stab.gyro.read();
+            let motion = gyro.file_metadata.read();
+            assert!(gyro.get_offsets().is_empty());
+            let samples = gyro.raw_imu(&motion);
+            assert_eq!(samples.first().unwrap().timestamp_ms, 0.0);
+            assert!((samples.last().unwrap().timestamp_ms - 18_282.0).abs() < 1e-6);
+            assert!(motion.has_accurate_timestamps, "video: {video:?} ({url}), motion: {}", gyro.file_url);
+        }
         assert_eq!(sidecar_metadata(&stab)["camera_model"], "FP2");
         assert_eq!(sidecar_metadata(&stab)["lens_model"], "58mm F2.0");
         let (time, direction) = sidecar_readout(&stab).unwrap();
