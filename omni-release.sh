@@ -20,7 +20,7 @@
 #   xcrun notarytool store-credentials omni-notary --apple-id <your Apple ID> --team-id <team ID>
 #                                                  # asks for an app-specific password from account.apple.com
 # Then each release:
-#   SIGNING_FINGERPRINT=<hash> ./omni-release.sh   # NOTARY_PROFILE defaults to omni-notary
+#   ./omni-release.sh   # finds your Developer ID; SIGNING_FINGERPRINT=<hash> picks one; NOTARY_PROFILE defaults to omni-notary
 # The plugins are signed by the build recipes, then the zips and dmgs are notarized and the dmgs stapled.
 set -euo pipefail
 
@@ -104,11 +104,18 @@ git fetch --quiet origin
 [[ -n "$(git branch -r --contains "$SHA")" ]] || die "Commit ${SHA:0:8} isn't pushed to origin. Push it first."
 
 # Check signing and notary credentials before a long build.
+# Without SIGNING_FINGERPRINT, use the Keychain's Developer ID Application certificate when there is exactly one.
+if [[ -z "${SIGNING_FINGERPRINT:-}" && $ADHOC -eq 0 ]]; then
+    ids="$(security find-identity -v -p codesigning | sed -nE 's/^ *[0-9]+\) ([0-9A-F]{40}) "Developer ID Application:.*/\1/p' | sort -u)"
+    [[ $(grep -c . <<<"$ids") -eq 1 ]] && SIGNING_FINGERPRINT="$ids" && echo "Signing with Developer ID $SIGNING_FINGERPRINT"
+fi
 if [[ -n "${SIGNING_FINGERPRINT:-}" ]]; then
     security find-identity -v -p codesigning | grep -q "$SIGNING_FINGERPRINT" || die "No codesigning identity matches SIGNING_FINGERPRINT."
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1         || die "Notary profile '$NOTARY_PROFILE' not found. Create it: xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <team ID>"
+    export SIGNING_FINGERPRINT   # the just recipes sign with it
+    # notarytool exits 0 even when the profile is missing, so check what it prints.
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 | grep -q "Successfully received submission history"         || die "Notary profile '$NOTARY_PROFILE' not found. Create it: xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <team ID>"
 elif [[ $ADHOC -eq 0 ]]; then
-    die "SIGNING_FINGERPRINT isn't set. Set it to your Developer ID Application certificate, or pass --adhoc for an unsigned test build."
+    die "SIGNING_FINGERPRINT isn't set and there isn't exactly one Developer ID Application certificate in Keychain. Set it to your certificate's hash, or pass --adhoc for an unsigned test build."
 fi
 
 if [[ $SKIP_BUILD -eq 0 ]]; then

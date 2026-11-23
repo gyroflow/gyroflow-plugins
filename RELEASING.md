@@ -30,12 +30,14 @@ The file names are what the app downloads (`src/nle_plugins.rs` in `gyroflow-omn
 - Xcode, Rust, `gh` (`gh auth login`) and `just`: `brew install just`
 - Signing and notarization, so macOS opens the plugins without warnings:
   1. Install your **Developer ID Application** certificate in Keychain. It's under Certificates in your Apple Developer account.
-  2. Find its hash: `security find-identity -v -p codesigning`
+  2. The scripts use it automatically when it's the only Developer ID Application certificate in Keychain. If you have several, find the hash (`security find-identity -v -p codesigning`) and run the script with `SIGNING_FINGERPRINT=<hash>`.
   3. Save your notarization login. It asks for an app-specific password, which you create at [account.apple.com](https://account.apple.com):
 
      ```bash
      xcrun notarytool store-credentials omni-notary --apple-id <your Apple ID> --team-id <your team ID>
      ```
+
+     The profile stays in your login Keychain, so every later release (of the app and the plugins) reuses it. You only redo this on a new Mac or after revoking the app-specific password. To check it, run `xcrun notarytool history --keychain-profile omni-notary`: it should print "Successfully received submission history". The scripts run the same check before building. To use a profile with another name, set `NOTARY_PROFILE=<name>`.
 
 ## Releasing a version
 
@@ -58,7 +60,7 @@ This runs the `common` tests, builds OpenFX and Adobe (`just ofx deploy`, `just 
 Pull the same commit, then:
 
 ```bash
-SIGNING_FINGERPRINT=<certificate hash> ./omni-release.sh
+./omni-release.sh
 ```
 
 This builds both architectures, signs with your Developer ID, notarizes the zips and dmgs, staples the dmgs and uploads them to the same draft. Notarization usually takes a few minutes per file. If Apple rejects a file, the script prints the submission and the command that shows Apple's log.
