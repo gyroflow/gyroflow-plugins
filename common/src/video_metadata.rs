@@ -438,7 +438,7 @@ mod tests {
                 bytes[position..position + 4].copy_from_slice(codec);
             }
             for extension in ["NEV", "nev", "R3D", "r3d"] {
-                let url = filesystem::path_to_url(&format!("C:/clip.{extension}"));
+                let url = filesystem::path_to_url(&format!("{}/clip.{extension}", test_dir()));
                 let mut stream = Cursor::new(&bytes);
                 let metadata = get_video_metadata(&mut stream, bytes.len() as u64, &url).unwrap();
                 assert_eq!((metadata.width, metadata.height), (16, 16));
@@ -448,6 +448,11 @@ mod tests {
         }
     }
 
+    /// An absolute path that `path_to_url` accepts on this OS (a drive path is not absolute on macOS or Linux).
+    fn test_dir() -> &'static str {
+        if cfg!(windows) { "C:" } else { "/tmp" }
+    }
+
     #[test]
     fn raw_extensions_do_not_accept_invalid_containers() {
         for extension in ["NEV", "nev", "R3D", "r3d"] {
@@ -455,7 +460,7 @@ mod tests {
             let error = get_video_metadata(
                 &mut stream,
                 64,
-                &filesystem::path_to_url(&format!("C:/clip.{extension}")),
+                &filesystem::path_to_url(&format!("{}/clip.{extension}", test_dir())),
             )
             .unwrap_err();
             assert!(
@@ -465,7 +470,7 @@ mod tests {
         }
         let mut stream = Cursor::new(vec![0u8; 64]);
         assert!(matches!(
-            get_video_metadata(&mut stream, 64, &filesystem::path_to_url("C:/clip.nev.bak")),
+            get_video_metadata(&mut stream, 64, &filesystem::path_to_url(&format!("{}/clip.nev.bak", test_dir()))),
             Err(GyroflowCoreError::UnsupportedFormat(_))
         ));
     }
