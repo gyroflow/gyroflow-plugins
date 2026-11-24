@@ -15,7 +15,7 @@
 #   --adhoc        allow an ad-hoc signed, un-notarized build (no Developer ID); browser downloads then need
 #                  xattr -dr com.apple.quarantine <bundle>
 #
-# Signing and notarization (one-time setup on the Mac):
+# Signing and notarization (one-time setup on the Mac; an API key in ~/.appstoreconnect/omni-notary.env replaces the profile, see RELEASING.md):
 #   security find-identity -v -p codesigning      # copy the hash of your "Developer ID Application" certificate
 #   xcrun notarytool store-credentials omni-notary --apple-id <your Apple ID> --team-id <team ID>
 #                                                  # asks for an app-specific password from account.apple.com
@@ -33,6 +33,17 @@ MAC_ASSETS=(Gyroflow-OpenFX-macos.zip Gyroflow-Adobe-macos.zip)
 # Installers for people who download the plugins by hand; uploaded when present, not required to publish
 MAC_EXTRAS=(Gyroflow-OpenFX-macos.dmg Gyroflow-Adobe-macos.dmg)
 NOTARY_PROFILE="${NOTARY_PROFILE:-omni-notary}"
+# An App Store Connect API key notarizes without a Keychain profile. It comes from NOTARY_KEY, NOTARY_KEY_ID and
+# NOTARY_ISSUER, or from NOTARY_ENV (default ~/.appstoreconnect/omni-notary.env), a file that sets those three.
+NOTARY_ENV="${NOTARY_ENV:-$HOME/.appstoreconnect/omni-notary.env}"
+if [[ -z "${NOTARY_KEY:-}" && -f "$NOTARY_ENV" ]]; then source "$NOTARY_ENV"; fi
+if [[ -n "${NOTARY_KEY:-}" ]]; then
+    NOTARY_AUTH=(--key "$NOTARY_KEY" --key-id "${NOTARY_KEY_ID:-}" --issuer "${NOTARY_ISSUER:-}")
+    NOTARY_WHAT="API key ${NOTARY_KEY_ID:-}"
+else
+    NOTARY_AUTH=(--keychain-profile "$NOTARY_PROFILE")
+    NOTARY_WHAT="Keychain profile '$NOTARY_PROFILE'"
+fi
 
 NOTES=""; PUBLISH=0; SKIP_BUILD=0; DRY_RUN=0; ADHOC=0
 while [[ $# -gt 0 ]]; do
@@ -54,9 +65,9 @@ for tool in gh git; do command -v "$tool" >/dev/null || die "$tool is not instal
 notarize() { # submit to Apple's notary service and wait; staple the ticket into dmgs
     local f="$1" out
     echo "Notarizing $(basename "$f") (usually a few minutes)..."
-    out="$(xcrun notarytool submit "$f" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json)" || die "notarytool failed for $f: $out"
+    out="$(xcrun notarytool submit "$f" "${NOTARY_AUTH[@]}" --wait --output-format json)" || die "notarytool failed for $f: $out"
     grep -Eq '"status" *: *"Accepted"' <<<"$out" || die "Apple rejected $(basename "$f"): $out
-Details: xcrun notarytool log <id> --keychain-profile $NOTARY_PROFILE"
+Details: xcrun notarytool log <id> ${NOTARY_AUTH[*]}"
     if [[ "$f" == *.dmg ]]; then
         xcrun stapler staple "$f"
         spctl --assess --type open --context context:primary-signature -v "$f"
@@ -113,7 +124,7 @@ if [[ -n "${SIGNING_FINGERPRINT:-}" ]]; then
     security find-identity -v -p codesigning | grep -q "$SIGNING_FINGERPRINT" || die "No codesigning identity matches SIGNING_FINGERPRINT."
     export SIGNING_FINGERPRINT   # the just recipes sign with it
     # notarytool exits 0 even when the profile is missing, so check what it prints.
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 | grep -q "Successfully received submission history"         || die "Notary profile '$NOTARY_PROFILE' not found. Create it: xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id <Apple ID> --team-id <team ID>"
+    xcrun notarytool history "${NOTARY_AUTH[@]}" 2>&1 | grep -q "Successfully received submission history"         || die "Can't notarize with $NOTARY_WHAT. Check it with: xcrun notarytool history ${NOTARY_AUTH[*]}"
 elif [[ $ADHOC -eq 0 ]]; then
     die "SIGNING_FINGERPRINT isn't set and there isn't exactly one Developer ID Application certificate in Keychain. Set it to your certificate's hash, or pass --adhoc for an unsigned test build."
 fi

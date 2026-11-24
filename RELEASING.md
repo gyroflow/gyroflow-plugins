@@ -39,6 +39,20 @@ The file names are what the app downloads (`src/nle_plugins.rs` in `gyroflow-omn
 
      The profile stays in your login Keychain, so every later release (of the app and the plugins) reuses it. You only redo this on a new Mac or after revoking the app-specific password. To check it, run `xcrun notarytool history --keychain-profile omni-notary`: it should print "Successfully received submission history". The scripts run the same check before building. To use a profile with another name, set `NOTARY_PROFILE=<name>`.
 
+     **Or use an App Store Connect API key** (recommended: it doesn't depend on Keychain or an app-specific password). In [App Store Connect](https://appstoreconnect.apple.com), go to Users and Access → Integrations → App Store Connect API, create a Team Key with the Developer role and download its `AuthKey_<KEYID>.p8` (you can only download it once). Then:
+
+     ```bash
+     mkdir -p ~/.appstoreconnect/private_keys && mv ~/Downloads/AuthKey_<KEYID>.p8 ~/.appstoreconnect/private_keys/
+     chmod 700 ~/.appstoreconnect ~/.appstoreconnect/private_keys && chmod 600 ~/.appstoreconnect/private_keys/*.p8
+     cat > ~/.appstoreconnect/omni-notary.env <<EOF
+     NOTARY_KEY="\$HOME/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8"
+     NOTARY_KEY_ID="<KEYID>"
+     NOTARY_ISSUER="<issuer ID from the API keys page>"
+     EOF
+     ```
+
+     The scripts read that file when it exists and use the key instead of the profile. Setting `NOTARY_KEY`, `NOTARY_KEY_ID` and `NOTARY_ISSUER` in the environment works too. Keep the `.p8` out of the repos.
+
 ## Releasing a version
 
 ### 1. Set the version
