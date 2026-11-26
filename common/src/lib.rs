@@ -357,23 +357,33 @@ impl GyroflowPluginBase {
 
     pub fn open_gyroflow(project_path: Option<&str>) {
         if cfg!(target_os = "macos") {
-            let mut cmd = std::process::Command::new("osascript");
-            if let Some(project) = project_path {
+            let Some(project) = project_path else { return; };
+            // Through Launch Services, as Finder's "Open With" does: it starts Gyroflow if it isn't running and hands the file
+            // to the running one if it is, as a plain POSIX path. An AppleScript `open file` needed an HFS path, which the
+            // volume name was missing from, and an Automation permission for the host app
+            let location = Self::get_gyroflow_location().filter(|x| std::path::Path::new(x).exists());
+            let mut cmd = std::process::Command::new("open");
+            cmd.arg("-a").arg(location.as_deref().unwrap_or("Gyroflow"));
                 if !project.is_empty() {
-                    cmd.args(&["-e", &format!("tell application \"Gyroflow\" to open file \"{}\"", project.replace("/", ":").trim_start_matches(':'))]);
-                } else {
-                    cmd.args(&["-e", "tell application \"Gyroflow\" to activate"]);
-                }
+                cmd.arg(project);
             }
-            let _ = cmd.output();
+            let error = match cmd.output() {
+                Ok(out) if out.status.success() => return,
+                Ok(out) => String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+                Err(e) => format!("{e:?}"),
+            };
+            log::error!("Unable to start Gyroflow ({location:?}, {project}): {error}");
+            if location.is_none() {
+                rfd::MessageDialog::new().set_description("Unable to find Gyroflow app path. Make sure to run Gyroflow app at least once and that version is at least v1.6.0").show();
+                } else {
+                rfd::MessageDialog::new().set_description(format!("Unable to start Gyroflow: {error}")).show();
+                }
         } else {
             if let Some(v) = Self::get_gyroflow_location() {
                 if !v.is_empty() {
                     if let Some(project) = project_path {
                         let result = if !project.is_empty() {
-                            if cfg!(target_os = "macos") {
-                                std::process::Command::new("open").args(["-a", &v, "--args", "--open", &project]).spawn()
-                            } else if cfg!(target_os = "windows") && v.starts_with("shell:") {
+                            if cfg!(target_os = "windows") && v.starts_with("shell:") {
                                 let mut cmd = std::process::Command::new("cmd.exe");
                                 #[cfg(target_os = "windows")]
                                 { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
@@ -382,9 +392,7 @@ impl GyroflowPluginBase {
                                 std::process::Command::new(v).args(["--open", &project]).spawn()
                             }
                         } else {
-                            if cfg!(target_os = "macos") {
-                                std::process::Command::new("open").args(["-a", &v]).spawn()
-                            } else if cfg!(target_os = "windows") && v.starts_with("shell:") {
+                            if cfg!(target_os = "windows") && v.starts_with("shell:") {
                                 let mut cmd = std::process::Command::new("cmd.exe");
                                 #[cfg(target_os = "windows")]
                                 { use std::os::windows::process::CommandExt; cmd.creation_flags(0x08000000); } // CREATE_NO_WINDOW
