@@ -20,8 +20,8 @@ regex = "1.12"
 winres = "0.1"
 
 [patch.crates-io]
-ofx = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "0b15219" }
-ofx_sys = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "0b15219" }
+ofx = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "a8de253" }
+ofx_sys = { git = "https://github.com/AdrianEddy/ofx-rs.git", rev = "a8de253" }
 #ofx = { path = "../../ofx-rs/ofx" }
 #ofx_sys = { path = "../../ofx-rs/ofx-sys" }
 

@@ -1138,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "gyroflow-core"
 version = "1.7.1"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=5928995#5928995d6d47452bc28316fcb169b522b8b16f01"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=933d16d#933d16d2f43287676971503060f6cab8359d0dd5"
 dependencies = [
  "ahrs",
  "akaze",
@@ -2310,7 +2310,7 @@ dependencies = [
 [[package]]
 name = "ofx"
 version = "0.3.0"
-source = "git+https://github.com/AdrianEddy/ofx-rs.git?rev=0b15219#0b152196fb47b0dd09c110881786d6a9e5e0d953"
+source = "git+https://github.com/AdrianEddy/ofx-rs.git?rev=a8de253#a8de253b69aa67eb4679f91b37fa96f2036f25a9"
 dependencies = [
  "libc",
  "log",
@@ -2321,7 +2321,7 @@ dependencies = [
 [[package]]
 name = "ofx_sys"
 version = "0.2.0"
-source = "git+https://github.com/AdrianEddy/ofx-rs.git?rev=0b15219#0b152196fb47b0dd09c110881786d6a9e5e0d953"
+source = "git+https://github.com/AdrianEddy/ofx-rs.git?rev=a8de253#a8de253b69aa67eb4679f91b37fa96f2036f25a9"
 dependencies = [
  "bindgen",
  "libc",
@@ -3191,7 +3191,7 @@ source = "git+https://github.com/Rust-GPU/rust-gpu?rev=854e9ba#854e9ba7da26d52ca
 [[package]]
 name = "stabilize_spirv"
 version = "0.0.0"
-source = "git+https://github.com/gyroflow/gyroflow.git?rev=5928995#5928995d6d47452bc28316fcb169b522b8b16f01"
+source = "git+https://github.com/gyroflow/gyroflow.git?rev=933d16d#933d16d2f43287676971503060f6cab8359d0dd5"
 dependencies = [
  "spirv-std",
 ]
