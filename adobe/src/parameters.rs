@@ -260,7 +260,8 @@ pub fn define_param(params: &mut ae::Parameters<Params>, x: ParameterType, _grou
             }), ParamFlag::SUPERVISE, ParamUIFlags::empty()).unwrap();
         }
         ParameterType::Checkbox { id, label, default, .. } => {
-            if id == "DontDrawOutside" { return; }
+            // Manual zoom is OpenFX only for now: a new parameter would change the ones of existing Adobe projects
+            if id == "DontDrawOutside" || id == "ManualZoom" { return; }
             params.add_with_flags(Params::from_str(id).unwrap(), label, ae::CheckBoxDef::setup(|f| {
                 f.set_default(default);
                 f.set_value(default);
@@ -434,6 +435,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn get_bool(&self, p: Params) -> PluginResult<bool> {
+        if p == Params::ManualZoom { return Err("Manual zoom is not a parameter in Adobe hosts".into()); }
         if p == Params::Status {
             return Ok(self.get_string(p)? == "OK");
         }
@@ -460,7 +462,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         }
     }
     fn set_bool(&mut self, p: Params, v: bool) -> PluginResult<()> {
-        if p == Params::Status {
+        if p == Params::Status || p == Params::ManualZoom {
             return Ok(());
         }
         self.stored.write().pending_params_bool.insert(p, v);
@@ -582,7 +584,7 @@ impl<'a, 'b> GyroflowPluginParams for ParamHandler<'a, 'b> {
         Ok(())
     }
     fn set_enabled(&mut self, p: Params, v: bool) -> PluginResult<()> {
-        if p == Params::VideoSpeed { return Ok(()); }
+        if p == Params::VideoSpeed || p == Params::ManualZoom { return Ok(()); }
         match &mut self.inner {
             ParamsInner::Ae(x) => {
                 let mut x = x.get_mut(p)?.clone();

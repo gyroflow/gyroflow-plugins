@@ -45,6 +45,7 @@ define_params!(ParamHandler {
     ],
     bools: [
         DisableStretch        => disable_stretch:         ParamHandle<bool>,
+        ManualZoom            => manual_zoom:             ParamHandle<bool>,
         ToggleOverview        => toggle_overview:         ParamHandle<bool>,
         DontDrawOutside       => dont_draw_outside:       ParamHandle<bool>,
         IncludeProjectData    => include_project_data:    ParamHandle<bool>,
@@ -453,6 +454,7 @@ impl Execute for GyroflowPlugin {
                         embedded_preset:          param_set.parameter("EmbeddedPreset")?,
                         project_path:             param_set.parameter("ProjectPath")?,
                         disable_stretch:          param_set.parameter("DisableStretch")?,
+                        manual_zoom:              param_set.parameter("ManualZoom")?,
                         status:                   param_set.parameter("Status")?,
                         open_in_gyroflow:         param_set.parameter("OpenGyroflow")?,
                         reload_project:           param_set.parameter("ReloadProject")?,
