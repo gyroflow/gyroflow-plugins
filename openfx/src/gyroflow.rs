@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 use ofx::*;
 use super::fuscript::*;
+use super::trim_markers::{ self, TrimMarkerParams };
 use gyroflow_plugin_base::*;
 use gyroflow_plugin_base::parking_lot::{ Mutex, RwLock };
 use gyroflow_plugin_base::lru::LruCache;
@@ -112,6 +113,7 @@ struct InstanceData {
     supports_output_size: bool,
     is_fusion_page: bool,
     file_path: Option<String>,
+    trim_markers: Option<TrimMarkerParams>,
 
     current_file_info_pending: Arc<AtomicBool>,
     current_file_info: Arc<Mutex<Option<CurrentFileInfo>>>,
@@ -132,10 +134,55 @@ impl InstanceData {
         let in_size = ((source_rect.x2 - source_rect.x1) as usize, (source_rect.y2 - source_rect.y1) as usize);*/
         let out_size = ((output_rect.x2 - output_rect.x1) as usize, (output_rect.y2 - output_rect.y1) as usize);
 
-        self.plugin.stab_manager(&mut self.params, manager_cache, out_size, loading_pending_video_file).map_err(|e| {
+        let loading = self.plugin.reload_values_from_project;
+        let stab = self.plugin.stab_manager(&mut self.params, manager_cache, out_size, loading_pending_video_file).map_err(|e| {
             log::error!("plugin.stab_manager error: {e:?}");
             Error::UnknownError
-        })
+        })?;
+        if loading && !self.plugin.reload_values_from_project {
+            // The project the user picked or reloaded is loaded now
+            self.place_trim_markers(&stab);
+        }
+        Ok(stab)
+    }
+    /// Adds the trim markers of the project `stab` has loaded, when they are on (see `trim_markers`)
+    fn place_trim_markers(&self, stab: &StabilizationManager) {
+        if let Some(request) = self.trim_markers.as_ref().and_then(|x| x.request(stab, || self.project_video(stab))) {
+            request.place();
+        }
+    }
+    /// One of the trim marker parameters changed. When it was edited, rather than its value followed over time, the
+    /// markers are made again for the loaded project, and the button of the palette opens it
+    fn trim_markers_changed(&mut self, name: &str, edited: bool) {
+        let Some(params) = self.trim_markers.as_mut() else { return; };
+        if trim_markers::is_palette_button(name) {
+            if edited {
+                params.pick_color(&self.params.get_string(Params::InstanceId).unwrap_or_default());
+            }
+            return;
+        }
+        params.update();
+        if edited {
+            if let Some(stab) = self.plugin.managers.iter().next().map(|(_, stab)| stab.clone()) {
+                self.place_trim_markers(&stab);
+            }
+        }
+    }
+    /// The video file of the project `stab` has loaded: the one it found, or else the one the project names. It may be
+    /// somewhere else by now, which the stabilization, with the motion data in the project, doesn't mind
+    fn project_video(&self, stab: &StabilizationManager) -> String {
+        let mut video = stab.input_file.read().url.clone();
+        if video.is_empty() {
+            let path = self.params.get_string(Params::ProjectPath).unwrap_or_default();
+            video = if path.ends_with(".gyroflow") {
+                std::fs::read_to_string(&path).ok().and_then(|x| GyroflowPluginBase::project_video_file(&x))
+                    .or_else(|| self.params.get_string(Params::ProjectData).ok().and_then(|x| GyroflowPluginBase::project_video_file(&x)))
+                    .unwrap_or_default()
+            } else {
+                path
+            };
+        }
+        if video.contains("://") { filesystem::url_to_path(&video) } else { video }
     }
     pub fn check_pending_file_info(&mut self) -> Result<bool> { // -> is_video_file
         if self.current_file_info_pending.load(SeqCst) {
@@ -446,6 +493,7 @@ impl Execute for GyroflowPlugin {
                     supports_output_size: true,
                     is_fusion_page: false,
                     file_path: None,
+                    trim_markers: TrimMarkerParams::new(&param_set),
                     params: ParamHandler {
                         instance_id:              param_set.parameter("InstanceId")?,
                         project_data:             param_set.parameter("ProjectData")?,
@@ -525,6 +573,9 @@ impl Execute for GyroflowPlugin {
                 }
                 if matches!(props.get_resolve_page().as_deref(), Ok("Fusion")) {
                     instance_data.is_fusion_page = true;
+                    if let Some(params) = instance_data.trim_markers.as_mut() {
+                        params.pick_with_palette();
+                    }
                 }
                 if let Ok(path) = props.get_src_file_path() {
                     if !path.is_empty() {
@@ -543,6 +594,12 @@ impl Execute for GyroflowPlugin {
                 }
                 if in_args.get_name()? == "Source" || in_args.get_name()? == "Output" || in_args.get_name()? == "ResolveUseAlphaForTrackCompositing" {
                     log::info!("InstanceChanged {:?} {:?}", in_args.get_name()?, in_args.get_change_reason()?);
+                    return OK;
+                }
+                if trim_markers::is_param(&in_args.get_name()?) {
+                    // The plugin doesn't set them, yet the color the palette sets comes as the plugin's edit: that's what
+                    // Fusion calls the change of a parameter it doesn't show
+                    instance_data.trim_markers_changed(&in_args.get_name()?, in_args.get_change_reason()? != Change::Time);
                     return OK;
                 }
 
@@ -677,6 +734,7 @@ impl Execute for GyroflowPlugin {
                 for param in GyroflowPluginBase::get_param_definitions() {
                     define_param(&mut param_set, param, None)?;
                 }
+                trim_markers::define(&mut param_set)?;
 
                 param_set
                     .param_define_page("Main")?
